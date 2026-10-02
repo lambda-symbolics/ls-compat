@@ -14,7 +14,11 @@
                 #:process-group-id
                 #:process-group-alive-p
                 #:make-directory-exclusively
-                #:file-mode)
+                #:file-mode
+                #:link-target-exists)
+  (:import-from #:ls-compat.files
+                #:publish-pathname
+                #:publish-file)
   (:import-from #:ls-compat.tcp
                 #:tcp-connect
                 #:tcp-listen

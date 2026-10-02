@@ -45,6 +45,11 @@
            #:open-regular-file
            #:directory-entries))
 
+(defpackage #:ls-compat.files
+  (:use #:cl)
+  (:export #:publish-pathname
+           #:publish-file))
+
 (defpackage #:ls-compat.tcp
   (:use #:cl)
   (:export #:tcp-connect

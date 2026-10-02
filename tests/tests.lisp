@@ -12,12 +12,15 @@
     (push description *test-failures*))
   value)
 
+(defvar *tests--random-state* (make-random-state t)
+  "A fresh random state naming temporary directories on every implementation.")
+
 (defun tests--temporary-directory ()
   "Return a unique temporary directory pathname."
   (merge-pathnames
-   (format nil "ls-compat-~D-~D/"
-           (current-process-id)
-           (random most-positive-fixnum))
+   (format nil "ls-compat-~D-~36R/"
+           (get-universal-time)
+           (random most-positive-fixnum *tests--random-state*))
    (uiop:temporary-directory)))
 
 
@@ -99,6 +102,118 @@
         (uiop:delete-directory-tree directory :validate t)))))
 
 
+;;;; -- Files --
+
+(defun tests--read-text (pathname)
+  "Return PATHNAME's complete UTF-8 text."
+  (with-open-file (stream pathname :external-format :utf-8)
+    (let ((text (make-string (file-length stream))))
+      (subseq text 0 (read-sequence text stream)))))
+
+(defun tests--stray-siblings (pathname)
+  "Return temporary siblings PUBLISH-FILE may have left beside PATHNAME."
+  (directory (merge-pathnames (make-pathname :name :wild :type "tmp") pathname)))
+
+(defun tests--publish-file-replaces ()
+  "Check text and octet publication replaces existing targets without leftovers."
+  (let* ((directory (tests--temporary-directory))
+         (target (merge-pathnames "published.txt" directory)))
+    (unwind-protect
+         (progn
+           (tests--check (equal target (publish-file target "first"))
+                         "Publication did not return its target.")
+           (tests--check (string= "first" (tests--read-text target))
+                         "First publication did not write its text.")
+           (publish-file target (lambda (stream) (write-string "second" stream)))
+           (tests--check (string= "second" (tests--read-text target))
+                         "Writer publication did not replace the text.")
+           (publish-file target (make-array 3 :element-type '(unsigned-byte 8)
+                                              :initial-contents '(104 105 33)))
+           (tests--check (string= "hi!" (tests--read-text target))
+                         "Octet publication did not replace the content.")
+           (tests--check (null (tests--stray-siblings target))
+                         "Publication left temporary siblings behind."))
+      (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
+
+(defun tests--publish-file-cleans-up-failures ()
+  "Check a failing producer leaves neither a target nor a temporary."
+  (let* ((directory (tests--temporary-directory))
+         (target (merge-pathnames "never.txt" directory)))
+    (unwind-protect
+         (progn
+           (tests--check
+            (handler-case
+                (progn
+                  (publish-file target (lambda (stream)
+                                         (declare (ignore stream))
+                                         (error "producer failed")))
+                  nil)
+              (error () t))
+            "A failing producer did not propagate its error.")
+           (tests--check (null (probe-file target))
+                         "A failing producer still published a target.")
+           (tests--check (null (tests--stray-siblings target))
+                         "A failing producer left a temporary sibling."))
+      (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
+
+(defun tests--publish-pathname-hooks ()
+  "Check the prepare and publish hooks see the temporary before the target exists."
+  (let* ((directory (tests--temporary-directory))
+         (target (merge-pathnames "hooked.txt" directory))
+         (prepared nil)
+         (published nil))
+    (unwind-protect
+         (progn
+           (publish-pathname
+            target
+            (lambda (temporary)
+              (with-open-file (stream temporary :direction :output :if-exists :supersede)
+                (write-string "hooked" stream)))
+            :prepare-function (lambda (temporary)
+                                (setf prepared (and (probe-file temporary)
+                                                    (not (probe-file target)))))
+            :publish-function (lambda (temporary final)
+                                (setf published (equal final target))
+                                (rename-file temporary final)))
+           (tests--check prepared
+                         "The prepare hook did not see a written temporary before publication.")
+           (tests--check published
+                         "The publish hook did not receive the target pathname.")
+           (tests--check (string= "hooked" (tests--read-text target))
+                         "A custom publish hook did not publish the content."))
+      (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
+
+(defun tests--publish-file-refuses-existing ()
+  "Check no-clobber publication keeps an occupied target or reports unsupport."
+  (let* ((directory (tests--temporary-directory))
+         (target (merge-pathnames "exclusive.txt" directory)))
+    (unwind-protect
+         (progn
+           (publish-file target "original")
+           (handler-case
+               (progn
+                 (publish-file target "intruder" :if-exists :error)
+                 (tests--check nil "No-clobber publication replaced an existing target."))
+             (link-target-exists (condition)
+               (tests--check (equal target (pathname (file-error-pathname condition)))
+                             "LINK-TARGET-EXISTS named the wrong pathname."))
+             (unsupported-operation ()
+               nil))
+           (tests--check (string= "original" (tests--read-text target))
+                         "No-clobber publication changed the existing content.")
+           (tests--check (null (tests--stray-siblings target))
+                         "No-clobber publication left a temporary sibling.")
+           (let ((fresh (merge-pathnames "fresh.txt" directory)))
+             (handler-case
+                 (progn
+                   (publish-file fresh "fresh" :if-exists :error)
+                   (tests--check (string= "fresh" (tests--read-text fresh))
+                                 "No-clobber publication did not create an absent target."))
+               (unsupported-operation ()
+                 nil))))
+      (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
+
+
 ;;;; -- TCP --
 
 (defun tests--tcp-lifecycle ()
@@ -142,6 +257,11 @@
       (dolist (test '(tests--current-process-group
                       tests--exclusive-directory-and-mode))
         (funcall test)))
+    (dolist (test '(tests--publish-file-replaces
+                    tests--publish-file-cleans-up-failures
+                    tests--publish-pathname-hooks
+                    tests--publish-file-refuses-existing))
+      (funcall test))
     (tests--tcp-lifecycle)
     (when *test-failures*
       (error "ls-compat test failures:~%~{~A~%~}"

@@ -17,6 +17,12 @@
   :components ((:file "src/win32" :if-feature (:and :sbcl :win32))
                (:file "src/posix")))
 
+(asdf:defsystem #:ls-compat/files
+  :description "Atomic file publication through temporary siblings."
+  :depends-on (#:ls-compat/posix)
+  :serial t
+  :components ((:file "src/files")))
+
 (asdf:defsystem #:ls-compat/tcp
   :description "TCP lifecycle operations backed by USOCKET."
   :depends-on (#:ls-compat #:usocket)
@@ -25,7 +31,7 @@
 
 (asdf:defsystem #:ls-compat/tests
   :description "Regression tests for ls-compat."
-  :depends-on (#:ls-compat/posix #:ls-compat/tcp)
+  :depends-on (#:ls-compat/posix #:ls-compat/files #:ls-compat/tcp)
   :serial t
   :components ((:file "tests/package")
                (:file "tests/tests"))

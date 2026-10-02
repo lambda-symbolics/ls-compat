@@ -11,6 +11,8 @@ to use directly:
 - use `ls-compat` for UTF-8 octets and timeouts;
 - use `ls-compat/posix` for the deliberately Unix-specific file-mode,
   process-ID, and exclusive-directory operations;
+- use `ls-compat/files` for atomic file publication through a temporary
+  sibling, replacing or refusing to replace an existing target;
 - use `ls-compat/tcp` for basic TCP lifecycle.
 
 The public API does not expose SBCL, CCL, or dependency-specific values.
@@ -22,6 +24,7 @@ only take the native dependencies they need.
 ```lisp
 (ql:quickload :ls-compat)
 (ql:quickload :ls-compat/posix)
+(ql:quickload :ls-compat/files)
 (ql:quickload :ls-compat/tcp)
 ```
 
