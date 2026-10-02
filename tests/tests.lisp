@@ -213,6 +213,19 @@
                  nil))))
       (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
 
+(defun tests--descendant-processes ()
+  "Check a launched child appears among this process's descendants."
+  (let ((child (uiop:launch-program '("sleep" "30") :output nil :error-output nil)))
+    (unwind-protect
+         (let ((pid (uiop:process-info-pid child)))
+           (tests--check (member pid (descendant-process-ids (current-process-id)))
+                         "A launched child was missing from the descendant snapshot.")
+           (tests--check (not (member (current-process-id)
+                                      (descendant-process-ids (current-process-id))))
+                         "A process listed itself among its descendants."))
+      (ignore-errors (uiop:terminate-process child :urgent t))
+      (ignore-errors (uiop:wait-process child)))))
+
 
 ;;;; -- TCP --
 
@@ -255,7 +268,8 @@
       (funcall test))
     (when (tests--posix-supported-p)
       (dolist (test '(tests--current-process-group
-                      tests--exclusive-directory-and-mode))
+                      tests--exclusive-directory-and-mode
+                      tests--descendant-processes))
         (funcall test)))
     (dolist (test '(tests--publish-file-replaces
                     tests--publish-file-cleans-up-failures

@@ -10,7 +10,7 @@ to use directly:
 - use `bordeaux-threads` for threads, locks, and condition variables;
 - use `ls-compat` for UTF-8 octets and timeouts;
 - use `ls-compat/posix` for the deliberately Unix-specific file-mode,
-  process-ID, and exclusive-directory operations;
+  process-ID, process-descendant, and exclusive-directory operations;
 - use `ls-compat/files` for atomic file publication through a temporary
   sibling, replacing or refusing to replace an existing target;
 - use `ls-compat/tcp` for basic TCP lifecycle.

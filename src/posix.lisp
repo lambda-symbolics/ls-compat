@@ -206,6 +206,36 @@ SBCL on hosts with process groups."
   #-(and sbcl (not win32))
   (posix--unsupported 'signal-process-group))
 
+(ls-compat::-> descendant-process-ids ((integer 1 *)) list)
+(defun descendant-process-ids (process-id)
+  "Return the live descendants of PROCESS-ID, deepest first, as a best-effort snapshot.
+
+The snapshot comes from the host's ps listing of every process with its parent,
+so processes that fork between the listing and the caller's use are missed, and
+a host without ps yields NIL. Each identifier appears once."
+  (let ((pairs
+          (handler-case
+              (let ((output
+                      (uiop:run-program '("ps" "-ax" "-o" "pid=" "-o" "ppid=")
+                                        :output ':string
+                                        :ignore-error-status t)))
+                (loop for line in (uiop:split-string output :separator '(#\Newline))
+                      for fields = (remove "" (uiop:split-string line :separator '(#\Space #\Tab))
+                                           :test #'string=)
+                      when (and (= (length fields) 2)
+                                (every #'digit-char-p (first fields))
+                                (every #'digit-char-p (second fields)))
+                        collect (cons (parse-integer (first fields))
+                                      (parse-integer (second fields)))))
+            (error ()
+              nil))))
+    (labels ((descendants (parent)
+               "Return PARENT's recursive descendants with children before parents."
+               (loop for (pid . parent-pid) in pairs
+                     when (and (= parent-pid parent) (/= pid parent))
+                       append (append (descendants pid) (list pid)))))
+      (remove-duplicates (descendants process-id) :test #'=))))
+
 
 ;;;; -- Filesystem modes --
 

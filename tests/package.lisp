@@ -15,7 +15,8 @@
                 #:process-group-alive-p
                 #:make-directory-exclusively
                 #:file-mode
-                #:link-target-exists)
+                #:link-target-exists
+                #:descendant-process-ids)
   (:import-from #:ls-compat.files
                 #:publish-pathname
                 #:publish-file)

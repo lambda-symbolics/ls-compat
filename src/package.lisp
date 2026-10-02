@@ -43,7 +43,8 @@
            #:file-information-change-time
            #:stream-file-information
            #:open-regular-file
-           #:directory-entries))
+           #:directory-entries
+           #:descendant-process-ids))
 
 (defpackage #:ls-compat.files
   (:use #:cl)
