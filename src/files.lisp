@@ -15,6 +15,93 @@
   '(member :replace :error))
 
 
+;;;; -- Conditions --
+
+(define-condition file-too-large (file-error)
+  ((size
+    :initarg :size
+    :reader file-too-large-size
+    :type (integer 0)
+    :documentation "The file's size in octets.")
+   (limit
+    :initarg :limit
+    :reader file-too-large-limit
+    :type (integer 0)
+    :documentation "The largest size the reader accepted."))
+  (:report (lambda (condition stream)
+             (format stream "~A is ~:D octets, more than the ~:D a read accepts."
+                     (file-error-pathname condition)
+                     (file-too-large-size condition)
+                     (file-too-large-limit condition))))
+  (:documentation "READ-FILE-TEXT found a file larger than its limit."))
+
+(define-condition file-changed (file-error)
+  ()
+  (:report (lambda (condition stream)
+             (format stream "~A changed while it was being read."
+                     (file-error-pathname condition))))
+  (:documentation "READ-FILE-TEXT saw the path or the opened file change during the read."))
+
+(define-condition file-not-utf-8 (file-error)
+  ()
+  (:report (lambda (condition stream)
+             (format stream "~A is not valid UTF-8 text."
+                     (file-error-pathname condition))))
+  (:documentation "READ-FILE-TEXT read octets that do not decode as UTF-8."))
+
+
+;;;; -- Bounded reading --
+
+(ls-compat::-> read-file-text
+  (pathname-designator
+   &key (:maximum-octets (integer 0))
+        (:follow-links-p boolean)
+        (:validation-function (or null function)))
+  string)
+(defun read-file-text (pathname &key (maximum-octets most-positive-fixnum)
+                                     follow-links-p validation-function)
+  "Return regular file PATHNAME's complete content as UTF-8 text, read exactly once.
+
+The file is opened without following a symbolic link unless FOLLOW-LINKS-P,
+and its size must not exceed MAXIMUM-OCTETS (FILE-TOO-LARGE). After opening,
+VALIDATION-FUNCTION runs when given; PATHNAME must then still name the opened
+object, every octet must arrive, and the object's size and times must not
+change during the read (FILE-CHANGED). Octets that are not UTF-8 signal
+FILE-NOT-UTF-8. Opening failures propagate from OPEN-REGULAR-FILE."
+  (let ((path (pathname pathname))
+        (stream nil))
+    (unwind-protect
+         (multiple-value-bind (opened information)
+             (ls-compat.posix:open-regular-file path :follow-links-p follow-links-p)
+           (setf stream opened)
+           (let ((size (ls-compat.posix:file-information-size information)))
+             (when (> size maximum-octets)
+               (error 'file-too-large :pathname path :size size :limit maximum-octets))
+             (when validation-function
+               (funcall validation-function))
+             (let ((current (handler-case
+                                (ls-compat.posix:file-information path :follow-links-p t)
+                              (ls-compat.posix:file-operation-failed ()
+                                nil))))
+               (unless (and current
+                            (ls-compat.posix:file-information-same-object-p
+                             information current))
+                 (error 'file-changed :pathname path)))
+             (let ((octets (make-array size :element-type '(unsigned-byte 8))))
+               (unless (= (read-sequence octets stream) size)
+                 (error 'file-changed :pathname path))
+               (unless (ls-compat.posix:file-information-unchanged-p
+                        information
+                        (ls-compat.posix:stream-file-information stream))
+                 (error 'file-changed :pathname path))
+               (handler-case
+                   (ls-compat:utf8-octets-to-string octets)
+                 (error ()
+                   (error 'file-not-utf-8 :pathname path))))))
+      (when stream
+        (close stream)))))
+
+
 ;;;; -- Temporary siblings --
 
 (defvar *files--random-state* (make-random-state t)

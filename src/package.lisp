@@ -62,7 +62,13 @@
 (defpackage #:ls-compat.files
   (:use #:cl)
   (:export #:publish-pathname
-           #:publish-file))
+           #:publish-file
+           #:read-file-text
+           #:file-too-large
+           #:file-too-large-size
+           #:file-too-large-limit
+           #:file-changed
+           #:file-not-utf-8))
 
 (defpackage #:ls-compat.tcp
   (:use #:cl)

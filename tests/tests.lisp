@@ -341,6 +341,45 @@
       (ignore-errors (uiop:terminate-process child :urgent t))
       (ignore-errors (uiop:wait-process child)))))
 
+(defun tests--read-file-text ()
+  "Check bounded reading, size limits, link refusal, non-files, and UTF-8 checks."
+  (let* ((directory (tests--temporary-directory))
+         (file (merge-pathnames "text.txt" directory))
+         (link (merge-pathnames "link.txt" directory))
+         (binary (merge-pathnames "binary.bin" directory)))
+    (unwind-protect
+         (progn
+           (publish-file file "Příliš žluťoučký kůň")
+           (tests--check (string= "Příliš žluťoučký kůň" (read-file-text file))
+                         "A UTF-8 file did not read back exactly.")
+           (tests--check (handler-case (progn (read-file-text file :maximum-octets 4) nil)
+                           (file-too-large () t))
+                         "An oversized file did not signal FILE-TOO-LARGE.")
+           (tests--check (handler-case
+                             (progn
+                               (read-file-text file :validation-function
+                                               (lambda ()
+                                                 (publish-file file "replaced")))
+                               nil)
+                           (file-changed () t))
+                         "A file replaced during the read did not signal FILE-CHANGED.")
+           (tests--write-octets binary '(104 #xC3 #x28 105))
+           (tests--check (handler-case (progn (read-file-text binary) nil)
+                           (file-not-utf-8 () t))
+                         "Invalid UTF-8 did not signal FILE-NOT-UTF-8.")
+           (tests--check (handler-case (progn (read-file-text directory) nil)
+                           (not-regular-file () t)
+                           (file-operation-failed () t))
+                         "A directory was read as text.")
+           (uiop:run-program (list "ln" "-s" (uiop:native-namestring file)
+                                   (uiop:native-namestring link)))
+           (tests--check (handler-case (progn (read-file-text link) nil)
+                           (file-operation-failed (condition)
+                             (eq ':symbolic-link (file-operation-failed-reason condition))))
+                         "A link was followed without FOLLOW-LINKS-P.")
+           (tests--check (string= "replaced" (read-file-text link :follow-links-p t))
+                         "A link was not followed with FOLLOW-LINKS-P."))
+      (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
 
 
 ;;;; -- TCP --
@@ -389,7 +428,8 @@
                       tests--file-information-and-reasons
                       tests--directory-names
                       tests--canonical-pathnames
-                      tests--signal-process))
+                      tests--signal-process
+                      tests--read-file-text))
         (funcall test)))
     (dolist (test '(tests--publish-file-replaces
                     tests--publish-file-cleans-up-failures

@@ -34,7 +34,11 @@
                 #:signal-process)
   (:import-from #:ls-compat.files
                 #:publish-pathname
-                #:publish-file)
+                #:publish-file
+                #:read-file-text
+                #:file-too-large
+                #:file-changed
+                #:file-not-utf-8)
   (:import-from #:ls-compat.tcp
                 #:tcp-connect
                 #:tcp-listen
