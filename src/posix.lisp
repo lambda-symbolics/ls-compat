@@ -225,6 +225,25 @@ SBCL on hosts with process groups."
   #-(and sbcl (not win32))
   (posix--unsupported 'signal-process-group))
 
+(ls-compat::-> signal-process ((integer 1 *) (member :terminate :kill)) (integer 1 *))
+(defun signal-process (process-id signal)
+  "Send SIGNAL, :TERMINATE or :KILL, to PROCESS-ID and return its identifier.
+
+POSIX errors, including a missing process, propagate as backend conditions,
+as SIGNAL-PROCESS-GROUP's do. Windows has no signals, so it signals
+LS-COMPAT:UNSUPPORTED-OPERATION there; terminate a Windows process through its
+process object instead."
+  (declare (ignorable process-id signal))
+  #+(and sbcl (not win32))
+  (progn
+    (sb-posix:kill process-id
+                   (ecase signal
+                     (:terminate sb-posix:sigterm)
+                     (:kill sb-posix:sigkill)))
+    process-id)
+  #-(and sbcl (not win32))
+  (posix--unsupported 'signal-process))
+
 (ls-compat::-> descendant-process-ids ((integer 1 *)) list)
 (defun descendant-process-ids (process-id)
   "Return the live descendants of PROCESS-ID, deepest first, as a best-effort snapshot.
@@ -584,3 +603,145 @@ The POSIX system currently supports SBCL."
     (values (nreverse entries) exceeded-p))
   #-sbcl
   (posix--unsupported 'directory-entries))
+
+(ls-compat::-> directory-names
+  (pathname-designator &key (:limit (integer 0)))
+  (values list boolean))
+(defun directory-names (pathname &key (limit most-positive-fixnum))
+  "Return the entry names directly below directory PATHNAME and whether more exist.
+
+Unlike DIRECTORY-ENTRIES, no entry is inspected, so listing a large directory
+costs one enumeration. Names keep the order the host enumerates them in and
+exclude the current and parent entries. Signals FILE-OPERATION-FAILED with
+operation :LIST when PATHNAME cannot be listed. The POSIX system currently
+supports SBCL."
+  (declare (ignorable pathname limit))
+  #+(and sbcl win32)
+  (multiple-value-bind (entries exceeded-p)
+      (win32--directory-entries pathname limit)
+    (values (mapcar #'first entries) exceeded-p))
+  #+(and sbcl (not win32))
+  (let ((handle nil)
+        (names nil)
+        (count 0)
+        (exceeded-p nil))
+    (handler-case
+        (unwind-protect
+             (progn
+               (setf handle (sb-posix:opendir (posix--native-namestring pathname)))
+               (loop for entry = (sb-posix:readdir handle)
+                     until (sb-alien:null-alien entry)
+                     for name = (sb-posix:dirent-name entry)
+                     unless (member name '("." "..") :test #'string=)
+                       do (when (>= count limit)
+                            (setf exceeded-p t)
+                            (return))
+                          (push name names)
+                          (incf count)))
+          (when handle
+            (sb-posix:closedir handle)))
+      (sb-posix:syscall-error (condition)
+        (posix--operation-failure ':list pathname condition)))
+    (values (nreverse names) exceeded-p))
+  #-sbcl
+  (posix--unsupported 'directory-names))
+
+
+;;;; -- Path resolution --
+
+(ls-compat::-> resolve-pathname (pathname-designator) pathname)
+(defun resolve-pathname (pathname)
+  "Return the absolute pathname PATHNAME resolves to through every symbolic link.
+
+POSIX uses TRUENAME. Windows asks the kernel for the final path, because SBCL's
+TRUENAME leaves links and junctions unresolved there. Signals
+FILE-OPERATION-FAILED with operation :RESOLVE, whose reason is :MISSING only
+when nothing at all exists at PATHNAME; a dangling link reports :FAILED. The
+POSIX system currently supports SBCL."
+  (declare (ignorable pathname))
+  #+(and sbcl win32)
+  (win32--resolve-pathname pathname)
+  #+(and sbcl (not win32))
+  (handler-case
+      (truename pathname)
+    (file-error (condition)
+      (let ((errno (handler-case
+                       (progn
+                         (sb-posix:lstat (posix--native-namestring pathname))
+                         nil)
+                     (sb-posix:syscall-error (inspection)
+                       (sb-posix:syscall-errno inspection)))))
+        (error 'file-operation-failed
+               :operation ':resolve
+               :pathname (pathname pathname)
+               :message (princ-to-string condition)
+               :reason (if errno (posix--failure-reason errno) ':failed)
+               :code errno))))
+  #-sbcl
+  (posix--unsupported 'resolve-pathname))
+
+(ls-compat::-> posix--resolve-existing (pathname) (values (or null pathname) boolean))
+(defun posix--resolve-existing (candidate)
+  "Return CANDIDATE resolved and NIL, or NIL and true when nothing exists there."
+  (handler-case
+      (values (resolve-pathname candidate) nil)
+    (file-operation-failed (condition)
+      (if (eq (file-operation-failed-reason condition) ':missing)
+          (values nil t)
+          (error condition)))))
+
+(ls-compat::-> posix--canonical-directory (pathname pathname) pathname)
+(defun posix--canonical-directory (directory original)
+  "Return directory pathname DIRECTORY with every existing ancestor resolved."
+  (multiple-value-bind (canonical missing-p)
+      (posix--resolve-existing directory)
+    (if (not missing-p)
+        canonical
+        (let* ((components (pathname-directory directory))
+               (leaf (first (last components))))
+          (unless (stringp leaf)
+            (error 'file-operation-failed
+                   :operation ':resolve
+                   :pathname original
+                   :message (format nil "~A has no resolvable existing ancestor."
+                                    (posix--native-namestring original))))
+          (merge-pathnames
+           (make-pathname :directory (list ':relative leaf) :name nil :type nil)
+           (posix--canonical-directory
+            (make-pathname :directory (butlast components)
+                           :name nil :type nil :version nil
+                           :defaults directory)
+            original))))))
+
+(ls-compat::-> canonical-pathname (pathname-designator) pathname)
+(defun canonical-pathname (pathname)
+  "Return PATHNAME with every symbolic link in its existing part resolved.
+
+An existing PATHNAME resolves as RESOLVE-PATHNAME does. A missing one keeps its
+missing tail literally under its nearest existing ancestor, resolved, so a path
+that a link redirects elsewhere cannot hide behind a component that does not
+exist yet. Failures other than absence propagate as FILE-OPERATION-FAILED
+rather than being mistaken for a missing path."
+  (let ((pathname (pathname pathname)))
+    (multiple-value-bind (canonical missing-p)
+        (posix--resolve-existing pathname)
+      (if (not missing-p)
+          canonical
+          (merge-pathnames
+           (make-pathname :name (pathname-name pathname)
+                          :type (pathname-type pathname)
+                          :version (pathname-version pathname))
+           (posix--canonical-directory (uiop:pathname-directory-pathname pathname)
+                                       pathname))))))
+
+(ls-compat::-> pathname-within-p (pathname-designator pathname-designator) boolean)
+(defun pathname-within-p (pathname root)
+  "Return whether PATHNAME is directory ROOT or lies beneath it after canonicalization.
+
+Both sides go through CANONICAL-PATHNAME, so a symbolic link inside ROOT that
+points outside it does not count as within."
+  (let ((candidate (canonical-pathname pathname))
+        (directory (canonical-pathname (uiop:ensure-directory-pathname root))))
+    (and (or (uiop:pathname-equal candidate directory)
+             (uiop:subpathp candidate directory))
+         t)))

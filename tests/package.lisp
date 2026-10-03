@@ -25,7 +25,13 @@
                 #:file-information-same-object-p
                 #:file-operation-failed
                 #:file-operation-failed-reason
-                #:not-regular-file)
+                #:not-regular-file
+                #:directory-entries
+                #:directory-names
+                #:resolve-pathname
+                #:canonical-pathname
+                #:pathname-within-p
+                #:signal-process)
   (:import-from #:ls-compat.files
                 #:publish-pathname
                 #:publish-file)

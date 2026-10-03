@@ -276,6 +276,71 @@
                              "A path through a file did not report :NOT-DIRECTORY."))))
       (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
 
+(defun tests--directory-names ()
+  "Check name-only listing agrees with classified listing and honors the limit."
+  (let ((directory (tests--temporary-directory)))
+    (unwind-protect
+         (progn
+           (dolist (name '("a.txt" "b.txt" "c.txt"))
+             (publish-file (merge-pathnames name directory) name))
+           (tests--check (equal (sort (directory-names directory) #'string<)
+                                (sort (mapcar #'first (directory-entries directory))
+                                      #'string<))
+                         "Name-only listing disagreed with classified listing.")
+           (multiple-value-bind (names more-p) (directory-names directory :limit 2)
+             (tests--check (and (= 2 (length names)) more-p)
+                           "Name-only listing ignored its limit.")))
+      (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
+
+(defun tests--canonical-pathnames ()
+  "Check link resolution, missing tails, and containment through links."
+  (let* ((directory (tests--temporary-directory))
+         (inside (merge-pathnames "inside/" directory))
+         (outside (merge-pathnames "outside/" directory))
+         (escape (merge-pathnames "inside/escape" directory)))
+    (unwind-protect
+         (progn
+           (ensure-directories-exist inside)
+           (ensure-directories-exist outside)
+           (uiop:run-program (list "ln" "-s"
+                                   (uiop:native-namestring outside)
+                                   (uiop:native-namestring escape)))
+           (tests--check (uiop:pathname-equal (resolve-pathname inside) (truename inside))
+                         "An existing directory did not resolve to its truename.")
+           (handler-case
+               (progn
+                 (resolve-pathname (merge-pathnames "absent.txt" inside))
+                 (tests--check nil "A missing path resolved."))
+             (file-operation-failed (condition)
+               (tests--check (eq ':missing (file-operation-failed-reason condition))
+                             "A missing path did not resolve as :MISSING.")))
+           (tests--check
+            (uiop:pathname-equal
+             (canonical-pathname (merge-pathnames "new/deeper/file.txt" inside))
+             (merge-pathnames "new/deeper/file.txt" (truename inside)))
+            "A missing tail was not kept under its resolved ancestor.")
+           (tests--check (pathname-within-p (merge-pathnames "new/file.txt" inside) inside)
+                         "A missing child was not within its root.")
+           (tests--check (not (pathname-within-p (merge-pathnames "escape/x.txt" inside)
+                                                 inside))
+                         "A link out of the root still counted as within it.")
+           (tests--check (pathname-within-p inside inside)
+                         "A root did not count as within itself."))
+      (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
+
+(defun tests--signal-process ()
+  "Check a single child process can be terminated."
+  (let ((child (uiop:launch-program '("sleep" "30") :output nil :error-output nil)))
+    (unwind-protect
+         (let ((pid (uiop:process-info-pid child)))
+           (tests--check (= pid (signal-process pid :terminate))
+                         "SIGNAL-PROCESS did not return the process identifier.")
+           (uiop:wait-process child)
+           (tests--check (not (uiop:process-alive-p child))
+                         "A terminated child stayed alive."))
+      (ignore-errors (uiop:terminate-process child :urgent t))
+      (ignore-errors (uiop:wait-process child)))))
+
 
 
 ;;;; -- TCP --
@@ -321,7 +386,10 @@
       (dolist (test '(tests--current-process-group
                       tests--exclusive-directory-and-mode
                       tests--descendant-processes
-                      tests--file-information-and-reasons))
+                      tests--file-information-and-reasons
+                      tests--directory-names
+                      tests--canonical-pathnames
+                      tests--signal-process))
         (funcall test)))
     (dolist (test '(tests--publish-file-replaces
                     tests--publish-file-cleans-up-failures

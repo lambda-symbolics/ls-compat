@@ -52,6 +52,11 @@
            #:stream-file-information
            #:open-regular-file
            #:directory-entries
+           #:directory-names
+           #:resolve-pathname
+           #:canonical-pathname
+           #:pathname-within-p
+           #:signal-process
            #:descendant-process-ids))
 
 (defpackage #:ls-compat.files

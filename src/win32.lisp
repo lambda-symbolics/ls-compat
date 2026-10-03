@@ -165,6 +165,14 @@
   (sacl (* (* t)))
   (descriptor (* (* t))))
 
+(sb-alien:define-alien-routine ("GetFinalPathNameByHandleW"
+                                win32--get-final-path-name-by-handle)
+    (sb-alien:unsigned 32)
+  (handle (sb-alien:signed 64))
+  (buffer (* t))
+  (size (sb-alien:unsigned 32))
+  (flags (sb-alien:unsigned 32)))
+
 (defparameter *win32-process-query-limited-information* #x1000
   "The OpenProcess access right that reads a process's exit state.")
 
@@ -714,6 +722,45 @@ object that refuses it is opened again with ACCESS alone."
       (when (= handle *win32-invalid-handle*)
         (win32--operation-failure ':inspect pathname (win32--get-last-error)))
       handle)))
+
+(ls-compat::-> win32--final-path-namestring (string) string)
+(defun win32--final-path-namestring (final)
+  "Return FINAL, a kernel final path, without its verbatim prefix."
+  (cond ((uiop:string-prefix-p "\\\\?\\UNC\\" final)
+         (concatenate 'string "\\\\" (subseq final 8)))
+        ((uiop:string-prefix-p "\\\\?\\" final)
+         (subseq final 4))
+        (t
+         final)))
+
+(ls-compat::-> win32--resolve-pathname (pathname-designator) pathname)
+(defun win32--resolve-pathname (pathname)
+  "Ask the kernel for PATHNAME's final path, which resolves links and junctions."
+  (let ((handle (win32--create-file (win32--native pathname) 0 *win32-share-all*
+                                    nil *win32-open-existing*
+                                    *win32-file-flag-backup-semantics* 0)))
+    (when (= handle *win32-invalid-handle*)
+      (win32--operation-failure ':resolve pathname (win32--get-last-error)))
+    (unwind-protect
+         (sb-alien:with-alien ((buffer (sb-alien:array (sb-alien:unsigned 16) 32768)))
+           (let ((length (win32--get-final-path-name-by-handle
+                          handle (sb-alien:alien-sap buffer) 32768 0)))
+             (when (or (zerop length) (> length 32768))
+               (win32--operation-failure ':resolve pathname (win32--get-last-error)))
+             (let* ((final
+                      (win32--final-path-namestring
+                       (coerce (loop for index below length
+                                     collect (code-char
+                                              (sb-sys:sap-ref-16 (sb-alien:alien-sap buffer)
+                                                                 (* 2 index))))
+                               'string)))
+                    (attributes (win32--get-file-attributes final)))
+               (uiop:parse-native-namestring
+                final
+                :ensure-directory (and (/= attributes *win32-invalid-file-attributes*)
+                                       (logtest attributes
+                                                *win32-file-attribute-directory*))))))
+      (win32--close-handle handle))))
 
 (ls-compat::-> win32--file-information (pathname-designator boolean) file-information)
 (defun win32--file-information (pathname follow-links-p)
