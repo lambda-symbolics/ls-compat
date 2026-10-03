@@ -8,7 +8,8 @@ to use directly:
 
 - use `uiop` for paths, environment, processes, and command-line behavior;
 - use `bordeaux-threads` for threads, locks, and condition variables;
-- use `ls-compat` for UTF-8 octets and timeouts;
+- use `ls-compat` for UTF-8 octets, which fail the same way on every
+  implementation, and timeouts;
 - use `ls-compat/posix` for the deliberately Unix-specific file-mode,
   process-ID, process-descendant, and exclusive-directory operations;
 - use `ls-compat/files` for atomic file publication through a temporary

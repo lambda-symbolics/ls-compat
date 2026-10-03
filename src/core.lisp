@@ -39,6 +39,21 @@ implementations use Serapeum's portable declaration macro."
              (format stream "Operation timed out after ~,3F seconds."
                      (timeout-expired-seconds condition)))))
 
+(define-condition utf8-conversion-failed (error)
+  ((direction :initarg :direction
+              :reader utf8-conversion-failed-direction
+              :type (member :encode :decode)
+              :documentation ":ENCODE for a string with an unencodable character, :DECODE for invalid octets.")
+   (cause :initarg :cause
+          :initform nil
+          :reader utf8-conversion-failed-cause
+          :documentation "The implementation's own condition, when one was signaled."))
+  (:documentation "Signaled when text cannot be converted to or from UTF-8.")
+  (:report (lambda (condition stream)
+             (format stream "~:[Octets are not valid UTF-8~;A string contains a character UTF-8 cannot encode~]~@[: ~A~]"
+                     (eq (utf8-conversion-failed-direction condition) :encode)
+                     (utf8-conversion-failed-cause condition)))))
+
 (define-condition unsupported-operation (error)
   ((name :initarg :name
          :reader unsupported-operation-name
@@ -58,11 +73,23 @@ implementations use Serapeum's portable declaration macro."
 (defun utf8-string-to-octets (string &key start end)
   "Encode STRING as UTF-8 octets.
 
-START and END delimit the portion of STRING to encode."
-  (babel:string-to-octets string
-                          :encoding ':utf-8
-                          :start (or start 0)
-                          :end (or end (length string))))
+START and END delimit the portion of STRING to encode. A surrogate code point
+has no UTF-8 encoding, so it signals UTF8-CONVERSION-FAILED instead of
+producing invalid octets. SBCL uses its native encoder."
+  (let ((start (or start 0))
+        (end (or end (length string))))
+    #+sbcl
+    (handler-case
+        (sb-ext:string-to-octets string :external-format ':utf-8 :start start :end end)
+      (error (condition)
+        (error 'utf8-conversion-failed :direction :encode :cause condition)))
+    #-sbcl
+    (progn
+      (when (find-if (lambda (character)
+                       (<= #xD800 (char-code character) #xDFFF))
+                     string :start start :end end)
+        (error 'utf8-conversion-failed :direction :encode))
+      (babel:string-to-octets string :encoding ':utf-8 :start start :end end))))
 
 (-> utf8-octets-to-string
   (octet-vector &key (:start (or null (integer 0 *))) (:end (or null (integer 0 *))))
@@ -70,11 +97,18 @@ START and END delimit the portion of STRING to encode."
 (defun utf8-octets-to-string (octets &key start end)
   "Decode UTF-8 OCTETS into a string.
 
-START and END delimit the portion of OCTETS to decode."
-  (babel:octets-to-string octets
-                          :encoding ':utf-8
-                          :start (or start 0)
-                          :end (or end (length octets))))
+START and END delimit the portion of OCTETS to decode. Invalid, overlong, or
+surrogate-encoding sequences signal UTF8-CONVERSION-FAILED. SBCL uses its
+native decoder."
+  (let ((start (or start 0))
+        (end (or end (length octets))))
+    (handler-case
+        #+sbcl
+        (sb-ext:octets-to-string octets :external-format ':utf-8 :start start :end end)
+        #-sbcl
+        (babel:octets-to-string octets :encoding ':utf-8 :start start :end end)
+      (error (condition)
+        (error 'utf8-conversion-failed :direction :decode :cause condition)))))
 
 
 ;;;; -- Floating point --

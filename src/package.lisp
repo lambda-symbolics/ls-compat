@@ -2,6 +2,9 @@
   (:use #:cl)
   (:export #:utf8-string-to-octets
            #:utf8-octets-to-string
+           #:utf8-conversion-failed
+           #:utf8-conversion-failed-direction
+           #:utf8-conversion-failed-cause
            #:finite-float-p
            #:call-with-timeout
            #:with-timeout

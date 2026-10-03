@@ -37,6 +37,27 @@
     (tests--check (string= text (utf8-octets-to-string octets))
                   "UTF-8 decoding did not recover the original string.")))
 
+(defun tests--utf8-failures ()
+  "Check unencodable strings and invalid octets signal the portable condition."
+  (let ((surrogate (let ((character (code-char #xD800)))
+                     (and (characterp character) (string character)))))
+    (when surrogate
+      (tests--check
+       (handler-case (progn (utf8-string-to-octets surrogate) nil)
+         (utf8-conversion-failed (condition)
+           (eq :encode (utf8-conversion-failed-direction condition))))
+       "A lone surrogate encoded instead of signaling.")))
+  (dolist (octets '((104 #xC3 #x28 105) (#xC0 #xAF) (104 #xED #xA0 #x80 105)))
+    (tests--check
+     (handler-case
+         (progn (utf8-octets-to-string (coerce octets '(vector (unsigned-byte 8)))) nil)
+       (utf8-conversion-failed (condition)
+         (eq :decode (utf8-conversion-failed-direction condition))))
+     (format nil "Invalid octets ~S decoded instead of signaling." octets)))
+  (tests--check (string= "žluť" (utf8-octets-to-string
+                                 (utf8-string-to-octets "Příliš žluťoučký" :start 7 :end 11)))
+                "Delimited conversion did not round-trip."))
+
 (defun tests--finite-floats ()
   "Check that ordinary and extreme finite floats are accepted."
   (tests--check (finite-float-p 1.0d0)
@@ -418,6 +439,7 @@
   "Run ls-compat regression tests and signal an error on any failure."
   (let ((*test-failures* nil))
     (dolist (test '(tests--utf8-round-trip
+                    tests--utf8-failures
                     tests--finite-floats
                     tests--timeout-signals-condition))
       (funcall test))

@@ -3,6 +3,8 @@
   (:import-from #:ls-compat
                 #:utf8-string-to-octets
                 #:utf8-octets-to-string
+                #:utf8-conversion-failed
+                #:utf8-conversion-failed-direction
                 #:finite-float-p
                 #:with-timeout
                 #:timeout-expired
