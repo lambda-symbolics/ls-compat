@@ -39,17 +39,36 @@
              (mode-failed-message condition))))
   (:documentation "FILE-MODE could not read or apply permissions on a Windows host."))
 
+(deftype failure-reason ()
+  "The portable discriminator a failed file operation carries."
+  '(member :missing :exists :not-directory :symbolic-link :failed))
+
 (define-condition file-operation-failed (file-error)
   ((operation
     :initarg :operation
     :reader file-operation-failed-operation
     :type keyword
-    :documentation "The operation that failed: :INSPECT, :OPEN, or :LIST.")
+    :documentation "The operation that failed: :INSPECT, :OPEN, :LIST, or :RESOLVE.")
    (message
     :initarg :message
     :reader file-operation-failed-message
     :type string
-    :documentation "The operating system's explanation of the failure."))
+    :documentation "The operating system's explanation of the failure.")
+   (reason
+    :initarg :reason
+    :initform ':failed
+    :reader file-operation-failed-reason
+    :type failure-reason
+    :documentation
+    "Why the operation failed: :MISSING when nothing exists there, :EXISTS,
+:NOT-DIRECTORY for a path through a non-directory, :SYMBOLIC-LINK when a link
+was refused, and :FAILED otherwise.")
+   (code
+    :initarg :code
+    :initform nil
+    :reader file-operation-failed-code
+    :type (or null integer)
+    :documentation "The host error number, an errno or a Windows error code, when known."))
   (:report
    (lambda (condition stream)
      (format stream "Could not ~(~A~) ~A: ~A"
@@ -341,44 +360,95 @@ volume for hard links. The POSIX system currently supports SBCL."
 
 (deftype file-kind ()
   "The kinds of filesystem object FILE-INFORMATION distinguishes."
-  '(member :file :directory :symbolic-link :other))
+  '(member :file :directory :symbolic-link :socket :other))
 
 (defstruct (file-information
             (:constructor make-file-information
-                (kind identity size modification-time change-time)))
+                (kind identity size modification-time change-time
+                 &optional owned-p private-p read-only-p)))
   "One observation of a filesystem object.
 
 IDENTITY names the object on its volume and compares with EQUAL: a device and
 inode pair on POSIX, a volume serial number and file index pair on Windows.
-The times are in host units and compare only for equality."
+The times are in host units and compare only for equality. OWNED-P reports
+that the current user owns the object, PRIVATE-P that it is owned and no other
+user may access it, and READ-ONLY-P that the owner may not write its content.
+Windows judges ownership and privacy from the access control list and reports
+all three as false when the security descriptor cannot be read."
   (kind ':other :type file-kind :read-only t)
   (identity nil :read-only t)
   (size 0 :type (integer 0) :read-only t)
   (modification-time 0 :type integer :read-only t)
-  (change-time 0 :type integer :read-only t))
+  (change-time 0 :type integer :read-only t)
+  (owned-p nil :type boolean :read-only t)
+  (private-p nil :type boolean :read-only t)
+  (read-only-p nil :type boolean :read-only t))
+
+(ls-compat::-> file-information-same-object-p (file-information file-information) boolean)
+(defun file-information-same-object-p (left right)
+  "Return whether observations LEFT and RIGHT describe the same filesystem object."
+  (and (equal (file-information-identity left) (file-information-identity right))
+       t))
+
+(ls-compat::-> file-information-unchanged-p (file-information file-information) boolean)
+(defun file-information-unchanged-p (before after)
+  "Return whether one object kept its size and times between BEFORE and AFTER."
+  (and (file-information-same-object-p before after)
+       (= (file-information-size before) (file-information-size after))
+       (= (file-information-modification-time before)
+          (file-information-modification-time after))
+       (= (file-information-change-time before)
+          (file-information-change-time after))))
+
+#+(and sbcl (not win32))
+(defun posix--failure-reason (errno)
+  "Return the portable FAILURE-REASON for ERRNO."
+  (cond
+    ((= errno sb-posix:enoent) ':missing)
+    ((= errno sb-posix:eexist) ':exists)
+    ((= errno sb-posix:enotdir) ':not-directory)
+    ((= errno sb-posix:eloop) ':symbolic-link)
+    (t ':failed)))
 
 (ls-compat::-> posix--operation-failure (keyword pathname-designator t) nil)
 (defun posix--operation-failure (operation pathname cause)
-  "Signal FILE-OPERATION-FAILED for OPERATION on PATHNAME explained by CAUSE."
-  (error 'file-operation-failed
-         :operation operation
-         :pathname (pathname pathname)
-         :message (princ-to-string cause)))
+  "Signal FILE-OPERATION-FAILED for OPERATION on PATHNAME explained by CAUSE.
+
+A POSIX system call failure contributes its errno and the matching reason."
+  (let ((errno #+(and sbcl (not win32))
+               (and (typep cause 'sb-posix:syscall-error)
+                    (sb-posix:syscall-errno cause))
+               #-(and sbcl (not win32))
+               nil))
+    (error 'file-operation-failed
+           :operation operation
+           :pathname (pathname pathname)
+           :message (princ-to-string cause)
+           :reason (if errno
+                       #+(and sbcl (not win32)) (posix--failure-reason errno)
+                       #-(and sbcl (not win32)) ':failed
+                       ':failed)
+           :code errno)))
 
 #+(and sbcl (not win32))
 (defun posix--stat-information (stat)
   "Return the FILE-INFORMATION described by SB-POSIX STAT."
-  (let ((mode (sb-posix:stat-mode stat)))
+  (let* ((mode (sb-posix:stat-mode stat))
+         (owned-p (= (sb-posix:stat-uid stat) (sb-posix:getuid))))
     (make-file-information
      (cond
        ((sb-posix:s-isreg mode) ':file)
        ((sb-posix:s-isdir mode) ':directory)
        ((sb-posix:s-islnk mode) ':symbolic-link)
+       ((sb-posix:s-issock mode) ':socket)
        (t ':other))
      (cons (sb-posix:stat-dev stat) (sb-posix:stat-ino stat))
      (sb-posix:stat-size stat)
      (sb-posix:stat-mtime stat)
-     (sb-posix:stat-ctime stat))))
+     (sb-posix:stat-ctime stat)
+     owned-p
+     (and owned-p (zerop (logand mode #o077)))
+     (zerop (logand mode #o200)))))
 
 (ls-compat::-> file-information (pathname-designator &key (:follow-links-p boolean))
   file-information)

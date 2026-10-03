@@ -227,6 +227,57 @@
       (ignore-errors (uiop:wait-process child)))))
 
 
+;;;; -- File information and paths --
+
+(defun tests--write-octets (pathname octets)
+  "Write the octet list OCTETS to PATHNAME."
+  (with-open-file (stream pathname :direction :output :if-exists :supersede
+                                   :element-type '(unsigned-byte 8))
+    (write-sequence (coerce octets '(vector (unsigned-byte 8))) stream)))
+
+(defun tests--file-information-and-reasons ()
+  "Check kinds, privacy, read-only state, and failure reasons."
+  (let* ((directory (tests--temporary-directory))
+         (file (merge-pathnames "plain.txt" directory))
+         (missing (merge-pathnames "missing/below.txt" directory)))
+    (unwind-protect
+         (progn
+           (publish-file file "plain")
+           (setf (file-mode file) #o600)
+           (let ((information (file-information file)))
+             (tests--check (eq ':file (file-information-kind information))
+                           "A regular file was not observed as :FILE.")
+             (tests--check (file-information-owned-p information)
+                           "A file this process created was not owned.")
+             (tests--check (file-information-private-p information)
+                           "A mode 0600 file was not private.")
+             (tests--check (not (file-information-read-only-p information))
+                           "A writable file was reported read-only."))
+           (setf (file-mode file) #o444)
+           (let ((information (file-information file)))
+             (tests--check (file-information-read-only-p information)
+                           "A mode 0444 file was not reported read-only.")
+             (tests--check (not (file-information-private-p information))
+                           "A world-readable file was reported private."))
+           (setf (file-mode file) #o600)
+           (handler-case
+               (progn
+                 (file-information missing)
+                 (tests--check nil "A missing path was observed."))
+             (file-operation-failed (condition)
+               (tests--check (eq ':missing (file-operation-failed-reason condition))
+                             "A missing path did not report :MISSING.")))
+           (handler-case
+               (progn
+                 (file-information (merge-pathnames "plain.txt/below" directory))
+                 (tests--check nil "A path through a file was observed."))
+             (file-operation-failed (condition)
+               (tests--check (eq ':not-directory (file-operation-failed-reason condition))
+                             "A path through a file did not report :NOT-DIRECTORY."))))
+      (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
+
+
+
 ;;;; -- TCP --
 
 (defun tests--tcp-lifecycle ()
@@ -269,7 +320,8 @@
     (when (tests--posix-supported-p)
       (dolist (test '(tests--current-process-group
                       tests--exclusive-directory-and-mode
-                      tests--descendant-processes))
+                      tests--descendant-processes
+                      tests--file-information-and-reasons))
         (funcall test)))
     (dolist (test '(tests--publish-file-replaces
                     tests--publish-file-cleans-up-failures

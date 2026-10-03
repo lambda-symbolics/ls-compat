@@ -154,11 +154,34 @@
     sb-alien:int
   (handle (sb-alien:signed 64)))
 
+(sb-alien:define-alien-routine ("GetSecurityInfo" win32--get-security-info)
+    (sb-alien:unsigned 32)
+  (handle (sb-alien:signed 64))
+  (type sb-alien:int)
+  (information (sb-alien:unsigned 32))
+  (owner (* (* t)))
+  (group (* (* t)))
+  (dacl (* (* t)))
+  (sacl (* (* t)))
+  (descriptor (* (* t))))
+
 (defparameter *win32-process-query-limited-information* #x1000
   "The OpenProcess access right that reads a process's exit state.")
 
 (defparameter *win32-still-active* 259
   "The exit code GetExitCodeProcess reports for a running process.")
+
+(defparameter *win32-error-file-not-found* 2
+  "ERROR_FILE_NOT_FOUND.")
+
+(defparameter *win32-error-path-not-found* 3
+  "ERROR_PATH_NOT_FOUND, reported when a directory on the way is missing.")
+
+(defparameter *win32-error-directory* 267
+  "ERROR_DIRECTORY, reported when a path component is not a directory.")
+
+(defparameter *win32-read-control* #x20000
+  "READ_CONTROL, the access right that reads an object's security descriptor.")
 
 (defparameter *win32-error-access-denied* 5
   "The Windows error for a process that exists but may not be opened.")
@@ -561,13 +584,73 @@ would carry an empty list and deny everyone, its creator included."
 
 ;;;; -- File information --
 
+(ls-compat::-> win32--failure-reason (integer) failure-reason)
+(defun win32--failure-reason (code)
+  "Return the portable FAILURE-REASON for Windows error CODE."
+  (cond
+    ((or (= code *win32-error-file-not-found*)
+         (= code *win32-error-path-not-found*))
+     ':missing)
+    ((or (= code *win32-error-file-exists*)
+         (= code *win32-error-already-exists*))
+     ':exists)
+    ((= code *win32-error-directory*)
+     ':not-directory)
+    (t
+     ':failed)))
+
 (ls-compat::-> win32--operation-failure (keyword pathname-designator integer) nil)
 (defun win32--operation-failure (operation pathname code)
   "Signal FILE-OPERATION-FAILED for Windows error CODE raised by OPERATION."
   (error 'file-operation-failed
          :operation operation
          :pathname (pathname pathname)
-         :message (format nil "Windows error ~D" code)))
+         :message (format nil "Windows error ~D" code)
+         :reason (win32--failure-reason code)
+         :code code))
+
+(ls-compat::-> win32--handle-privacy (integer) (values boolean boolean boolean))
+(defun win32--handle-privacy (handle)
+  "Return whether the object behind HANDLE is owned by the user, private to the
+user, and withholds write access from the user.
+
+Every value is false when the security descriptor cannot be read, which
+happens for objects the user may see but not inspect. Write access is judged
+only for private objects, whose access control list FILE-MODE wrote."
+  (sb-alien:with-alien ((owner (* t)) (dacl (* t)) (descriptor (* t)))
+    (let ((status (win32--get-security-info handle *win32-se-file-object*
+                                            *win32-owner-and-dacl-information*
+                                            (sb-alien:addr owner) nil
+                                            (sb-alien:addr dacl) nil
+                                            (sb-alien:addr descriptor))))
+      (if (not (zerop status))
+          (values nil nil nil)
+          (unwind-protect
+               (let* ((user (win32--current-user-sid))
+                      (owned-p (win32--owner-p
+                                (win32--sid-octets (sb-alien:alien-sap owner))))
+                      (entries (if (zerop (sb-sys:sap-int (sb-alien:alien-sap dacl)))
+                                   ':unrestricted
+                                   (win32--acl-entries (sb-alien:alien-sap dacl) "")))
+                      (private-p
+                        (and owned-p
+                             (listp entries)
+                             (every (lambda (entry)
+                                      (and (eq (first entry) ':allow)
+                                           (or (equalp (cddr entry) user)
+                                               (equalp (cddr entry)
+                                                       *win32-system-sid-octets*))))
+                                    entries)
+                             t)))
+                 (values owned-p
+                         private-p
+                         (and private-p
+                              (notany (lambda (entry)
+                                        (and (equalp (cddr entry) user)
+                                             (logtest (second entry)
+                                                      *win32-file-write-data*)))
+                                      entries))))
+            (win32--local-free descriptor))))))
 
 (ls-compat::-> win32--handle-information (integer boolean) file-information)
 (defun win32--handle-information (handle link-p)
@@ -581,42 +664,56 @@ would carry an empty list and deny everyone, its creator included."
       (when (zerop (win32--get-file-information-by-handle-ex
                     handle *win32-file-basic-info* basic-sap 40))
         (win32--operation-failure ':inspect "" (win32--get-last-error)))
-      (let ((attributes (sb-sys:sap-ref-32 sap 0)))
-        (make-file-information
-         (cond
-           ((or link-p (logtest attributes *win32-file-attribute-reparse-point*))
-            ':symbolic-link)
-           ((logtest attributes *win32-file-attribute-directory*)
-            ':directory)
-           ((= (win32--get-file-type handle) *win32-file-type-disk*)
-            ':file)
-           (t
-            ':other))
-         (cons (sb-sys:sap-ref-32 sap 28)
-               (logior (ash (sb-sys:sap-ref-32 sap 44) 32)
-                       (sb-sys:sap-ref-32 sap 48)))
-         (logior (ash (sb-sys:sap-ref-32 sap 32) 32)
-                 (sb-sys:sap-ref-32 sap 36))
-         (sb-sys:sap-ref-64 basic-sap 16)
-         (sb-sys:sap-ref-64 basic-sap 24))))))
+      (multiple-value-bind (owned-p private-p unwritable-p)
+          (win32--handle-privacy handle)
+        (let ((attributes (sb-sys:sap-ref-32 sap 0)))
+          (make-file-information
+           (cond
+             ((or link-p (logtest attributes *win32-file-attribute-reparse-point*))
+              ':symbolic-link)
+             ((logtest attributes *win32-file-attribute-directory*)
+              ':directory)
+             ((= (win32--get-file-type handle) *win32-file-type-disk*)
+              ':file)
+             (t
+              ':other))
+           (cons (sb-sys:sap-ref-32 sap 28)
+                 (logior (ash (sb-sys:sap-ref-32 sap 44) 32)
+                         (sb-sys:sap-ref-32 sap 48)))
+           (logior (ash (sb-sys:sap-ref-32 sap 32) 32)
+                   (sb-sys:sap-ref-32 sap 36))
+           (sb-sys:sap-ref-64 basic-sap 16)
+           (sb-sys:sap-ref-64 basic-sap 24)
+           owned-p
+           private-p
+           (or unwritable-p
+               (logtest attributes *win32-file-attribute-readonly*))))))))
 
 (ls-compat::-> win32--open-for-information (pathname-designator boolean integer integer)
   integer)
 (defun win32--open-for-information (pathname follow-links-p access flags)
-  "Open PATHNAME with ACCESS and FLAGS, following reparse points only when asked."
-  (let ((handle (win32--create-file (win32--native pathname)
-                                    access
-                                    *win32-share-all*
-                                    nil
-                                    *win32-open-existing*
-                                    (logior flags
-                                            (if follow-links-p
-                                                0
-                                                *win32-file-flag-open-reparse-point*))
-                                    0)))
-    (when (= handle *win32-invalid-handle*)
-      (win32--operation-failure ':inspect pathname (win32--get-last-error)))
-    handle))
+  "Open PATHNAME with ACCESS and FLAGS, following reparse points only when asked.
+
+READ_CONTROL is requested as well, so the security descriptor is readable; an
+object that refuses it is opened again with ACCESS alone."
+  (flet ((open-with (rights)
+           (win32--create-file (win32--native pathname)
+                               rights
+                               *win32-share-all*
+                               nil
+                               *win32-open-existing*
+                               (logior flags
+                                       (if follow-links-p
+                                           0
+                                           *win32-file-flag-open-reparse-point*))
+                               0)))
+    (let ((handle (open-with (logior access *win32-read-control*))))
+      (when (and (= handle *win32-invalid-handle*)
+                 (= (win32--get-last-error) *win32-error-access-denied*))
+        (setf handle (open-with access)))
+      (when (= handle *win32-invalid-handle*)
+        (win32--operation-failure ':inspect pathname (win32--get-last-error)))
+      handle)))
 
 (ls-compat::-> win32--file-information (pathname-designator boolean) file-information)
 (defun win32--file-information (pathname follow-links-p)

@@ -45,7 +45,7 @@
                                          :direction :output
                                          :if-exists :error
                                          :if-does-not-exist :create)
-                   (declare (ignore stream)))
+                   (declare (ignorable stream)))
                  (return candidate))
              (file-error ()
                nil))

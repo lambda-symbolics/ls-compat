@@ -16,7 +16,16 @@
                 #:make-directory-exclusively
                 #:file-mode
                 #:link-target-exists
-                #:descendant-process-ids)
+                #:descendant-process-ids
+                #:file-information
+                #:file-information-kind
+                #:file-information-owned-p
+                #:file-information-private-p
+                #:file-information-read-only-p
+                #:file-information-same-object-p
+                #:file-operation-failed
+                #:file-operation-failed-reason
+                #:not-regular-file)
   (:import-from #:ls-compat.files
                 #:publish-pathname
                 #:publish-file)

@@ -27,9 +27,12 @@
            #:link-failed-message
            #:mode-failed
            #:mode-failed-message
+           #:failure-reason
            #:file-operation-failed
            #:file-operation-failed-operation
            #:file-operation-failed-message
+           #:file-operation-failed-reason
+           #:file-operation-failed-code
            #:not-regular-file
            #:not-regular-file-kind
            #:file-kind
@@ -41,6 +44,11 @@
            #:file-information-size
            #:file-information-modification-time
            #:file-information-change-time
+           #:file-information-owned-p
+           #:file-information-private-p
+           #:file-information-read-only-p
+           #:file-information-same-object-p
+           #:file-information-unchanged-p
            #:stream-file-information
            #:open-regular-file
            #:directory-entries
