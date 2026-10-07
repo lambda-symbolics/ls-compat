@@ -419,6 +419,10 @@ all three as false when the security descriptor cannot be read."
        (= (file-information-change-time before)
           (file-information-change-time after))))
 
+#+(and sbcl netbsd)
+(defparameter *posix--netbsd-eftype* 79
+  "NetBSD EFTYPE from sys/errno.h, absent from SB-POSIX's exported errno set.")
+
 #+(and sbcl (not win32))
 (defun posix--failure-reason (errno)
   "Return the portable FAILURE-REASON for ERRNO."
@@ -429,11 +433,13 @@ all three as false when the security descriptor cannot be read."
     ((= errno sb-posix:eloop) ':symbolic-link)
     (t ':failed)))
 
-(ls-compat::-> posix--operation-failure (keyword pathname-designator t) nil)
-(defun posix--operation-failure (operation pathname cause)
+(ls-compat::-> posix--operation-failure
+  (keyword pathname-designator t &key (:reason (or null failure-reason))) nil)
+(defun posix--operation-failure (operation pathname cause &key reason)
   "Signal FILE-OPERATION-FAILED for OPERATION on PATHNAME explained by CAUSE.
 
-A POSIX system call failure contributes its errno and the matching reason."
+A POSIX system call failure contributes its errno. REASON, when supplied,
+classifies an operation-specific error instead of the generic errno mapping."
   (let ((errno #+(and sbcl (not win32))
                (and (typep cause 'sb-posix:syscall-error)
                     (sb-posix:syscall-errno cause))
@@ -443,10 +449,11 @@ A POSIX system call failure contributes its errno and the matching reason."
            :operation operation
            :pathname (pathname pathname)
            :message (princ-to-string cause)
-           :reason (if errno
-                       #+(and sbcl (not win32)) (posix--failure-reason errno)
-                       #-(and sbcl (not win32)) ':failed
-                       ':failed)
+           :reason (or reason
+                       (if errno
+                           #+(and sbcl (not win32)) (posix--failure-reason errno)
+                           #-(and sbcl (not win32)) ':failed
+                           ':failed))
            :code errno)))
 
 #+(and sbcl (not win32))
@@ -532,7 +539,15 @@ with operation :OPEN otherwise. The POSIX system currently supports SBCL."
                                      sb-posix:o-nonblock
                                      (if follow-links-p 0 sb-posix:o-nofollow)))
             (sb-posix:syscall-error (condition)
-              (posix--operation-failure ':open pathname condition)))))
+              ;; NetBSD open(2) uses EFTYPE, rather than ELOOP, for a final
+              ;; symlink with O_NOFOLLOW. Other EFTYPE contexts are not links.
+              (posix--operation-failure
+               ':open pathname condition
+               :reason #+netbsd (when (and (not follow-links-p)
+                                          (= (sb-posix:syscall-errno condition)
+                                             *posix--netbsd-eftype*))
+                                 ':symbolic-link)
+                       #-netbsd nil)))))
     (unwind-protect
          (let ((information
                  (handler-case
