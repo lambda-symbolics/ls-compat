@@ -297,6 +297,56 @@
                              "A path through a file did not report :NOT-DIRECTORY."))))
       (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
 
+(defun tests--regular-file-ranges ()
+  "Check standard byte lengths and bounded seeks retain the opened file identity."
+  (let* ((directory (tests--temporary-directory))
+         (file (merge-pathnames "ranges.bin" directory))
+         (original (merge-pathnames "original.bin" directory))
+         (octets (make-array 65537 :element-type '(unsigned-byte 8))))
+    (unwind-protect
+         (progn
+           (ensure-directories-exist file)
+           (dotimes (index (length octets))
+             (setf (aref octets index) (mod index 256)))
+           (tests--write-octets file octets)
+           (setf (file-mode file) #o600)
+           (multiple-value-bind (stream information) (open-regular-file file)
+             (unwind-protect
+                  (progn
+                    (tests--check (= (length octets) (file-length stream))
+                                  "The secure stream did not report its byte length.")
+                    (tests--check (zerop (file-position stream))
+                                  "The secure stream did not start at byte zero.")
+                    (rename-file file original)
+                    (tests--write-octets file '(42))
+                    (tests--check
+                     (file-information-same-object-p
+                      information (stream-file-information stream))
+                     "Replacing the pathname changed the opened stream identity.")
+                    (tests--check (= (length octets) (file-length stream))
+                                  "The stream length followed the replaced pathname.")
+                    (dolist (start '(0 32761 65520))
+                      (tests--check (file-position stream start)
+                                    "Seeking to a byte range failed.")
+                      (let ((range (make-array 17 :element-type '(unsigned-byte 8))))
+                        (tests--check (= 17 (read-sequence range stream))
+                                      "A bounded byte range was incomplete.")
+                        (tests--check (equalp range (subseq octets start (+ start 17)))
+                                      "A byte range did not preserve raw octets.")
+                        (tests--check (= (+ start 17) (file-position stream))
+                                      "Reading a range reported the wrong byte position.")))
+                    (tests--check (file-position stream :end)
+                                  "Seeking to the end failed.")
+                    (tests--check (and (= (length octets) (file-position stream))
+                                      (eq ':eof (read-byte stream nil ':eof)))
+                                  "The stream end was not its original file end.")
+                    (tests--check (file-position stream :start)
+                                  "Seeking back to the start failed.")
+                    (tests--check (= 0 (read-byte stream))
+                                  "The start seek did not read the original first byte."))
+               (close stream))))
+      (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
+
 (defun tests--directory-names ()
   "Check name-only listing agrees with classified listing and honors the limit."
   (let ((directory (tests--temporary-directory)))
@@ -448,6 +498,7 @@
                       tests--exclusive-directory-and-mode
                       tests--descendant-processes
                       tests--file-information-and-reasons
+                      tests--regular-file-ranges
                       tests--directory-names
                       tests--canonical-pathnames
                       tests--signal-process

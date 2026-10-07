@@ -799,10 +799,12 @@ object that refuses it is opened again with ACCESS alone."
              (error 'not-regular-file
                     :pathname (pathname pathname)
                     :kind (file-information-kind information)))
+           ;; SBCL requires :FILE as well as :PATHNAME for FILE-LENGTH.
            (let ((stream (sb-sys:make-fd-stream handle
                                                 :input t
                                                 :element-type element-type
                                                 :external-format external-format
+                                                :file (win32--native pathname)
                                                 :pathname (pathname pathname)
                                                 :auto-close t)))
              (setf handle nil)

@@ -524,10 +524,12 @@ POSIX system currently supports SBCL."
   "Open regular file PATHNAME for reading and return the stream with its observation.
 
 The observation comes from the opened object itself, so the stream and the
-returned FILE-INFORMATION describe the same file. Opening never blocks on a
-FIFO or device and refuses a symbolic link unless FOLLOW-LINKS-P. Signals
-NOT-REGULAR-FILE for anything but a regular file and FILE-OPERATION-FAILED
-with operation :OPEN otherwise. The POSIX system currently supports SBCL."
+returned FILE-INFORMATION describe the same file. FILE-LENGTH and FILE-POSITION
+operate on that opened object; with the default octet element type their units
+are bytes. Opening never blocks on a FIFO or device and refuses a symbolic link
+unless FOLLOW-LINKS-P. Signals NOT-REGULAR-FILE for anything but a regular file
+and FILE-OPERATION-FAILED with operation :OPEN otherwise. The POSIX system
+currently supports SBCL."
   (declare (ignorable pathname follow-links-p element-type external-format))
   #+(and sbcl win32)
   (win32--open-regular-file pathname follow-links-p element-type external-format)
@@ -558,10 +560,13 @@ with operation :OPEN otherwise. The POSIX system currently supports SBCL."
              (error 'not-regular-file
                     :pathname (pathname pathname)
                     :kind (file-information-kind information)))
+           ;; SBCL's :FILE associates the descriptor with a file for FILE-LENGTH;
+           ;; :PATHNAME alone supplies pathname metadata. Neither reopens the file.
            (let ((stream (sb-sys:make-fd-stream descriptor
                                                 :input t
                                                 :element-type element-type
                                                 :external-format external-format
+                                                :file (posix--native-namestring pathname)
                                                 :pathname (pathname pathname)
                                                 :auto-close t)))
              (setf descriptor nil)

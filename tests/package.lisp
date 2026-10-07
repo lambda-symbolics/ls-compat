@@ -25,6 +25,8 @@
                 #:file-information-private-p
                 #:file-information-read-only-p
                 #:file-information-same-object-p
+                #:open-regular-file
+                #:stream-file-information
                 #:file-operation-failed
                 #:file-operation-failed-reason
                 #:not-regular-file
