@@ -98,6 +98,7 @@ was refused, and :FAILED otherwise.")
   "Return PATHNAME as a native namestring for the POSIX backend."
   (uiop:native-namestring (pathname pathname)))
 
+(ls-compat::-> posix--unsupported (symbol) nil)
 (defun posix--unsupported (operation)
   "Signal that OPERATION has no backend on this implementation or host."
   (error 'ls-compat:unsupported-operation :name operation))

@@ -6,6 +6,7 @@
 
 ;;;; -- Test helpers --
 
+(ls-compat::-> tests--check (t string) t)
 (defun tests--check (value description)
   "Record DESCRIPTION unless VALUE is true, then return VALUE."
   (unless value
@@ -15,6 +16,7 @@
 (defvar *tests--random-state* (make-random-state t)
   "A fresh random state naming temporary directories on every implementation.")
 
+(ls-compat::-> tests--temporary-directory () pathname)
 (defun tests--temporary-directory ()
   "Return a unique temporary directory pathname."
   (merge-pathnames
@@ -26,6 +28,7 @@
 
 ;;;; -- Core --
 
+(ls-compat::-> tests--utf8-round-trip () t)
 (defun tests--utf8-round-trip ()
   "Check portable UTF-8 encoding and decoding."
   (let* ((text "Příliš žluťoučký kůň")
@@ -37,6 +40,7 @@
     (tests--check (string= text (utf8-octets-to-string octets))
                   "UTF-8 decoding did not recover the original string.")))
 
+(ls-compat::-> tests--utf8-failures () t)
 (defun tests--utf8-failures ()
   "Check unencodable strings and invalid octets signal the portable condition."
   (let ((surrogate (let ((character (code-char #xD800)))
@@ -58,6 +62,7 @@
                                  (utf8-string-to-octets "Příliš žluťoučký" :start 7 :end 11)))
                 "Delimited conversion did not round-trip."))
 
+(ls-compat::-> tests--finite-floats () t)
 (defun tests--finite-floats ()
   "Check that ordinary and extreme finite floats are accepted."
   (tests--check (finite-float-p 1.0d0)
@@ -65,6 +70,7 @@
   (tests--check (finite-float-p (- most-positive-double-float))
                 "The largest negative double float was not finite."))
 
+(ls-compat::-> tests--timeout-signals-condition () t)
 (defun tests--timeout-signals-condition ()
   "Check that a deadline expires or declares the capability unsupported."
   (handler-case
@@ -82,6 +88,7 @@
 
 ;;;; -- POSIX --
 
+(ls-compat::-> tests--posix-supported-p () boolean)
 (defun tests--posix-supported-p ()
   "Return whether this implementation provides the POSIX backend."
   (handler-case
@@ -95,6 +102,7 @@
        "Unsupported POSIX backend named the wrong operation.")
       nil)))
 
+(ls-compat::-> tests--current-process-group () t)
 (defun tests--current-process-group ()
   "Check current process group lookup and liveness."
   (let* ((process-id (current-process-id))
@@ -106,6 +114,7 @@
     (tests--check (process-group-alive-p process-group-id)
                   "Current process group is not alive.")))
 
+(ls-compat::-> tests--exclusive-directory-and-mode () t)
 (defun tests--exclusive-directory-and-mode ()
   "Check atomic directory creation and permission mode access."
   (let ((directory (tests--temporary-directory)))
@@ -125,16 +134,19 @@
 
 ;;;; -- Files --
 
+(ls-compat::-> tests--read-text (pathname) string)
 (defun tests--read-text (pathname)
   "Return PATHNAME's complete UTF-8 text."
   (with-open-file (stream pathname :external-format :utf-8)
     (let ((text (make-string (file-length stream))))
       (subseq text 0 (read-sequence text stream)))))
 
+(ls-compat::-> tests--stray-siblings (pathname) list)
 (defun tests--stray-siblings (pathname)
   "Return temporary siblings PUBLISH-FILE may have left beside PATHNAME."
   (directory (merge-pathnames (make-pathname :name :wild :type "tmp") pathname)))
 
+(ls-compat::-> tests--publish-file-replaces () t)
 (defun tests--publish-file-replaces ()
   "Check text and octet publication replaces existing targets without leftovers."
   (let* ((directory (tests--temporary-directory))
@@ -156,6 +168,7 @@
                          "Publication left temporary siblings behind."))
       (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
 
+(ls-compat::-> tests--publish-file-cleans-up-failures () t)
 (defun tests--publish-file-cleans-up-failures ()
   "Check a failing producer leaves neither a target nor a temporary."
   (let* ((directory (tests--temporary-directory))
@@ -177,6 +190,7 @@
                          "A failing producer left a temporary sibling."))
       (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
 
+(ls-compat::-> tests--publish-pathname-hooks () t)
 (defun tests--publish-pathname-hooks ()
   "Check the prepare and publish hooks see the temporary before the target exists."
   (let* ((directory (tests--temporary-directory))
@@ -204,6 +218,7 @@
                          "A custom publish hook did not publish the content."))
       (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
 
+(ls-compat::-> tests--publish-file-refuses-existing () t)
 (defun tests--publish-file-refuses-existing ()
   "Check no-clobber publication keeps an occupied target or reports unsupport."
   (let* ((directory (tests--temporary-directory))
@@ -250,6 +265,7 @@
           "Exhausted temporary names did not signal TEMPORARY-FILE-UNAVAILABLE.")
       (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
 
+(ls-compat::-> tests--descendant-processes () t)
 (defun tests--descendant-processes ()
   "Check a launched child appears among this process's descendants."
   (let ((child (uiop:launch-program '("sleep" "30") :output nil :error-output nil)))
@@ -266,12 +282,14 @@
 
 ;;;; -- File information and paths --
 
+(ls-compat::-> tests--write-octets (pathname sequence) (vector (unsigned-byte 8)))
 (defun tests--write-octets (pathname octets)
-  "Write the octet list OCTETS to PATHNAME."
+  "Write the octet sequence OCTETS to PATHNAME."
   (with-open-file (stream pathname :direction :output :if-exists :supersede
                                    :element-type '(unsigned-byte 8))
     (write-sequence (coerce octets '(vector (unsigned-byte 8))) stream)))
 
+(ls-compat::-> tests--file-information-and-reasons () t)
 (defun tests--file-information-and-reasons ()
   "Check kinds, privacy, read-only state, and failure reasons."
   (let* ((directory (tests--temporary-directory))
@@ -313,6 +331,7 @@
                              "A path through a file did not report :NOT-DIRECTORY."))))
       (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
 
+(ls-compat::-> tests--regular-file-ranges () t)
 (defun tests--regular-file-ranges ()
   "Check standard byte lengths and bounded seeks retain the opened file identity."
   (let* ((directory (tests--temporary-directory))
@@ -363,6 +382,7 @@
                (close stream))))
       (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
 
+(ls-compat::-> tests--directory-names () t)
 (defun tests--directory-names ()
   "Check name-only listing agrees with classified listing and honors the limit."
   (let ((directory (tests--temporary-directory)))
@@ -379,6 +399,7 @@
                            "Name-only listing ignored its limit.")))
       (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
 
+(ls-compat::-> tests--canonical-pathnames () t)
 (defun tests--canonical-pathnames ()
   "Check link resolution, missing tails, and containment through links."
   (let* ((directory (tests--temporary-directory))
@@ -415,6 +436,7 @@
                          "A root did not count as within itself."))
       (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
 
+(ls-compat::-> tests--signal-process () t)
 (defun tests--signal-process ()
   "Check a single child process can be terminated."
   (let ((child (uiop:launch-program '("sleep" "30") :output nil :error-output nil)))
@@ -428,6 +450,7 @@
       (ignore-errors (uiop:terminate-process child :urgent t))
       (ignore-errors (uiop:wait-process child)))))
 
+(ls-compat::-> tests--read-file-text () t)
 (defun tests--read-file-text ()
   "Check bounded reading, size limits, link refusal, non-files, and UTF-8 checks."
   (let* ((directory (tests--temporary-directory))
@@ -471,6 +494,7 @@
 
 ;;;; -- TCP --
 
+(ls-compat::-> tests--tcp-lifecycle () t)
 (defun tests--tcp-lifecycle ()
   "Check listener creation, client connection, acceptance, and streams."
   (let ((listener (tcp-listen "127.0.0.1" 0))
@@ -501,6 +525,7 @@
 
 ;;;; -- Runner --
 
+(ls-compat::-> run-tests () boolean)
 (defun run-tests ()
   "Run ls-compat regression tests and signal an error on any failure."
   (let ((*test-failures* nil))
