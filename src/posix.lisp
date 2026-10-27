@@ -387,8 +387,9 @@ volume for hard links. The POSIX system currently supports SBCL."
                  &optional owned-p private-p read-only-p)))
   "One observation of a filesystem object.
 
-IDENTITY names the object on its volume and compares with EQUAL: a device and
-inode pair on POSIX, a volume serial number and file index pair on Windows.
+IDENTITY names the object on its volume and compares with EQUAL. It is a
+device and inode pair on POSIX and a volume serial number and file index pair
+on Windows.
 The times are in host units and compare only for equality. OWNED-P reports
 that the current user owns the object, PRIVATE-P that it is owned and no other
 user may access it, and READ-ONLY-P that the owner may not write its content.
