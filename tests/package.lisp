@@ -1,5 +1,6 @@
 (defpackage #:ls-compat/tests
   (:use #:cl)
+  (:documentation "Regression tests for ls-compat.")
   (:import-from #:ls-compat
                 #:utf8-string-to-octets
                 #:utf8-octets-to-string

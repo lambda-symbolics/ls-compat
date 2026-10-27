@@ -1,5 +1,6 @@
 (defpackage #:ls-compat
   (:use #:cl)
+  (:documentation "UTF-8 conversion, float checks, and timeouts that behave alike on every supported implementation.")
   (:export #:utf8-string-to-octets
            #:utf8-octets-to-string
            #:utf8-conversion-failed
@@ -15,6 +16,7 @@
 
 (defpackage #:ls-compat.posix
   (:use #:cl)
+  (:documentation "Process, file mode, file information, and path operations for POSIX hosts, with a Win32 backend on SBCL.")
   (:export #:current-process-id
            #:process-state
            #:process-alive-p
@@ -64,6 +66,7 @@
 
 (defpackage #:ls-compat.files
   (:use #:cl)
+  (:documentation "Atomic file publication through temporary siblings, and bounded UTF-8 file reading.")
   (:export #:publish-pathname
            #:publish-file
            #:read-file-text
@@ -75,6 +78,7 @@
 
 (defpackage #:ls-compat.tcp
   (:use #:cl)
+  (:documentation "TCP connections, listeners, and accepted streams backed by USOCKET.")
   (:export #:tcp-connect
            #:tcp-listen
            #:tcp-accept
