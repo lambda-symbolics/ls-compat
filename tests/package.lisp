@@ -43,7 +43,8 @@
                 #:read-file-text
                 #:file-too-large
                 #:file-changed
-                #:file-not-utf-8)
+                #:file-not-utf-8
+                #:temporary-file-unavailable)
   (:import-from #:ls-compat.tcp
                 #:tcp-connect
                 #:tcp-listen

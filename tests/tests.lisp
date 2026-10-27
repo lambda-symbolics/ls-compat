@@ -234,6 +234,22 @@
                  nil))))
       (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
 
+(ls-compat::-> tests--publish-file-reports-unavailable-temporary () t)
+(defun tests--publish-file-reports-unavailable-temporary ()
+  "Check publication signals TEMPORARY-FILE-UNAVAILABLE when no temporary name is free."
+  (let* ((directory (tests--temporary-directory))
+         (target    (merge-pathnames "unavailable.txt" directory)))
+    (unwind-protect
+         (tests--check
+          (handler-case
+              (let ((ls-compat.files::*files--temporary-attempts* 0))
+                (publish-file target "content")
+                nil)
+            (temporary-file-unavailable (condition)
+              (equal target (pathname (file-error-pathname condition)))))
+          "Exhausted temporary names did not signal TEMPORARY-FILE-UNAVAILABLE.")
+      (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
+
 (defun tests--descendant-processes ()
   "Check a launched child appears among this process's descendants."
   (let ((child (uiop:launch-program '("sleep" "30") :output nil :error-output nil)))
@@ -507,7 +523,8 @@
     (dolist (test '(tests--publish-file-replaces
                     tests--publish-file-cleans-up-failures
                     tests--publish-pathname-hooks
-                    tests--publish-file-refuses-existing))
+                    tests--publish-file-refuses-existing
+                    tests--publish-file-reports-unavailable-temporary))
       (funcall test))
     (tests--tcp-lifecycle)
     (when *test-failures*

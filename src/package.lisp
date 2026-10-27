@@ -74,7 +74,9 @@
            #:file-too-large-size
            #:file-too-large-limit
            #:file-changed
-           #:file-not-utf-8))
+           #:file-not-utf-8
+           #:temporary-file-unavailable
+           #:temporary-file-unavailable-attempts))
 
 (defpackage #:ls-compat.tcp
   (:use #:cl)

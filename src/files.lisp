@@ -49,6 +49,18 @@
                      (file-error-pathname condition))))
   (:documentation "READ-FILE-TEXT read octets that do not decode as UTF-8."))
 
+(define-condition temporary-file-unavailable (file-error)
+  ((attempts
+    :initarg       :attempts
+    :reader        temporary-file-unavailable-attempts
+    :type          (integer 0)
+    :documentation "How many temporary names publication tried."))
+  (:report (lambda (condition stream)
+             (format stream "No temporary sibling of ~A could be created in ~D attempts."
+                     (file-error-pathname condition)
+                     (temporary-file-unavailable-attempts condition))))
+  (:documentation "Publication could not create a temporary sibling of its target."))
+
 
 ;;;; -- Bounded reading --
 
@@ -136,7 +148,9 @@ FILE-NOT-UTF-8. Opening failures propagate from OPEN-REGULAR-FILE."
                  (return candidate))
              (file-error ()
                nil))
-        finally (error 'file-error :pathname (files--temporary-sibling target))))
+        finally (error 'temporary-file-unavailable
+                       :pathname target
+                       :attempts *files--temporary-attempts*)))
 
 
 ;;;; -- Publication --
@@ -169,7 +183,9 @@ existing TARGET, and with :ERROR the temporary is hard-linked to TARGET, so an
 occupied TARGET signals LS-COMPAT.POSIX:LINK-TARGET-EXISTS and stays untouched.
 PUBLISH-FUNCTION replaces that final step with a caller-supplied function of
 the temporary and target pathnames. The temporary never outlives the call,
-whether publication succeeded or anything failed. Returns TARGET as a pathname."
+whether publication succeeded or anything failed. Signals
+TEMPORARY-FILE-UNAVAILABLE when no temporary sibling can be created. Returns
+TARGET as a pathname."
   (check-type if-exists publication-policy)
   (let ((target (pathname target))
         (temporary nil))
