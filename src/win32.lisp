@@ -701,9 +701,10 @@ only for private objects, whose access control list FILE-MODE wrote."
            (or unwritable-p
                (logtest attributes *win32-file-attribute-readonly*))))))))
 
-(ls-compat::-> win32--open-for-information (pathname-designator boolean integer integer)
+(ls-compat::-> win32--open-for-information
+  (pathname-designator integer integer &key (:follow-links-p boolean))
   integer)
-(defun win32--open-for-information (pathname follow-links-p access flags)
+(defun win32--open-for-information (pathname access flags &key follow-links-p)
   "Open PATHNAME with ACCESS and FLAGS, following reparse points only when asked.
 
 READ_CONTROL is requested as well, so the security descriptor is readable; an
@@ -769,9 +770,10 @@ object that refuses it is opened again with ACCESS alone."
 (ls-compat::-> win32--file-information (pathname-designator boolean) file-information)
 (defun win32--file-information (pathname follow-links-p)
   "Observe PATHNAME through a handle opened for attribute reading."
-  (let ((handle (win32--open-for-information pathname follow-links-p
+  (let ((handle (win32--open-for-information pathname
                                              *win32-file-read-attributes*
-                                             *win32-file-flag-backup-semantics*)))
+                                             *win32-file-flag-backup-semantics*
+                                             :follow-links-p follow-links-p)))
     (unwind-protect
          (win32--handle-information handle nil)
       (win32--close-handle handle))))
@@ -781,9 +783,10 @@ object that refuses it is opened again with ACCESS alone."
   "Observe the object behind STREAM's handle."
   (win32--handle-information (sb-sys:fd-stream-fd stream) nil))
 
-(ls-compat::-> win32--open-regular-file (pathname-designator boolean t t)
+(ls-compat::-> win32--open-regular-file
+  (pathname-designator &key (:follow-links-p boolean) (:element-type t) (:external-format t))
   (values stream file-information))
-(defun win32--open-regular-file (pathname follow-links-p element-type external-format)
+(defun win32--open-regular-file (pathname &key follow-links-p element-type external-format)
   "Open PATHNAME for reading, refusing links unless FOLLOW-LINKS-P and non-files always."
   (let ((handle (win32--create-file (win32--native pathname)
                                     *win32-generic-read*

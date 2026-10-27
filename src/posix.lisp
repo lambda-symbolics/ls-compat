@@ -532,7 +532,10 @@ and FILE-OPERATION-FAILED with operation :OPEN otherwise. The POSIX system
 currently supports SBCL."
   (declare (ignorable pathname follow-links-p element-type external-format))
   #+(and sbcl win32)
-  (win32--open-regular-file pathname follow-links-p element-type external-format)
+  (win32--open-regular-file pathname
+                            :follow-links-p  follow-links-p
+                            :element-type    element-type
+                            :external-format external-format)
   #+(and sbcl (not win32))
   (let ((descriptor
           (handler-case
