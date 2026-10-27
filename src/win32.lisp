@@ -547,12 +547,10 @@ would carry an empty list and deny everyone, its creator included."
       (win32--security-failure pathname "GetFileAttributesW" (win32--get-last-error)))
     attributes))
 
-(ls-compat::-> win32--set-read-only-attribute (pathname-designator string integer boolean) null)
-(defun win32--set-read-only-attribute (pathname native attributes read-only-p)
-  "Set or clear the read-only bit in NATIVE's ATTRIBUTES according to READ-ONLY-P."
-  (let ((updated (if read-only-p
-                     (logior attributes *win32-file-attribute-readonly*)
-                     (logandc2 attributes *win32-file-attribute-readonly*))))
+(ls-compat::-> win32--clear-read-only-attribute (pathname-designator string integer) null)
+(defun win32--clear-read-only-attribute (pathname native attributes)
+  "Clear the read-only bit in NATIVE's ATTRIBUTES."
+  (let ((updated (logandc2 attributes *win32-file-attribute-readonly*)))
     (unless (= updated attributes)
       (when (zerop (win32--set-file-attributes native updated))
         (win32--security-failure pathname "SetFileAttributesW" (win32--get-last-error)))))
@@ -592,7 +590,7 @@ would carry an empty list and deny everyone, its creator included."
        (win32--apply-owner-acl pathname native *win32-file-all-access*))
       (t
        (win32--restore-inherited-acl pathname native)))
-    (win32--set-read-only-attribute pathname native attributes nil)
+    (win32--clear-read-only-attribute pathname native attributes)
     mode))
 
 
