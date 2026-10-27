@@ -201,7 +201,9 @@ TARGET as a pathname."
                (files--publish temporary target if-exists))
            target)
       (when (and temporary (probe-file temporary))
-        (ignore-errors (delete-file temporary))))))
+        (handler-case (delete-file temporary)
+          (file-error ()
+            nil))))))
 
 (ls-compat::-> publish-file
   (pathname-designator file-content

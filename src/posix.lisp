@@ -576,7 +576,9 @@ currently supports SBCL."
              (setf descriptor nil)
              (values stream information)))
       (when descriptor
-        (ignore-errors (sb-posix:close descriptor)))))
+        (handler-case (sb-posix:close descriptor)
+          (sb-posix:syscall-error ()
+            nil)))))
   #-sbcl
   (posix--unsupported 'open-regular-file))
 
