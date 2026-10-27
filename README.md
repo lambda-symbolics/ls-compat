@@ -44,3 +44,17 @@ uses USOCKET.
 
 See `docs/USER_DOC.md` for the API and `docs/TECHNICAL_DOC.md` for semantics
 and implementation constraints.
+
+## Development
+
+```sh
+./script/bootstrap
+./script/check
+./script/check --fix
+```
+
+`./script/check` runs the tests, then checks the source with
+[cheque](https://github.com/lambda-symbolics/cheque) as `cheque.sexp`
+configures it. `--fix` skips the tests and repairs what cheque can repair.
+cheque and its tools are development dependencies: `checks/qlfile` lists them,
+and the check installs them on first use into `~/.cache/cheque/tools/`.
