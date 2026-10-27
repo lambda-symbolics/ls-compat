@@ -30,9 +30,9 @@ implementations use Serapeum's portable declaration macro."
 ;;;; -- Conditions --
 
 (define-condition timeout-expired (error)
-  ((seconds :initarg :seconds
-            :reader timeout-expired-seconds
-            :type (real 0 *)
+  ((seconds :initarg       :seconds
+            :reader        timeout-expired-seconds
+            :type          (real 0 *)
             :documentation "The requested timeout duration in seconds."))
   (:documentation "Signaled when a ls-compat timeout reaches its deadline.")
   (:report (lambda (condition stream)
@@ -40,13 +40,13 @@ implementations use Serapeum's portable declaration macro."
                      (timeout-expired-seconds condition)))))
 
 (define-condition utf8-conversion-failed (error)
-  ((direction :initarg :direction
-              :reader utf8-conversion-failed-direction
-              :type (member :encode :decode)
+  ((direction :initarg       :direction
+              :reader        utf8-conversion-failed-direction
+              :type          (member :encode :decode)
               :documentation ":ENCODE for a string with an unencodable character, :DECODE for invalid octets.")
-   (cause :initarg :cause
-          :initform nil
-          :reader utf8-conversion-failed-cause
+   (cause :initarg       :cause
+          :initform      nil
+          :reader        utf8-conversion-failed-cause
           :documentation "The implementation's own condition, when one was signaled."))
   (:documentation "Signaled when text cannot be converted to or from UTF-8.")
   (:report (lambda (condition stream)
@@ -55,9 +55,9 @@ implementations use Serapeum's portable declaration macro."
                      (utf8-conversion-failed-cause condition)))))
 
 (define-condition unsupported-operation (error)
-  ((name :initarg :name
-         :reader unsupported-operation-name
-         :type symbol
+  ((name :initarg       :name
+         :reader        unsupported-operation-name
+         :type          symbol
          :documentation "The unavailable ls-compat operation."))
   (:documentation "Signaled when an implementation cannot safely provide an operation.")
   (:report (lambda (condition stream)
@@ -77,7 +77,7 @@ START and END delimit the portion of STRING to encode. A surrogate code point
 has no UTF-8 encoding, so it signals UTF8-CONVERSION-FAILED instead of
 producing invalid octets. SBCL uses its native encoder."
   (let ((start (or start 0))
-        (end (or end (length string))))
+        (end   (or end (length string))))
     #+sbcl
     (handler-case
         (sb-ext:string-to-octets string :external-format ':utf-8 :start start :end end)
@@ -101,7 +101,7 @@ START and END delimit the portion of OCTETS to decode. Invalid, overlong, or
 surrogate-encoding sequences signal UTF8-CONVERSION-FAILED. SBCL uses its
 native decoder."
   (let ((start (or start 0))
-        (end (or end (length octets))))
+        (end   (or end (length octets))))
     (handler-case
         #+sbcl
         (sb-ext:octets-to-string octets :external-format ':utf-8 :start start :end end)

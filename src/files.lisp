@@ -19,14 +19,14 @@
 
 (define-condition file-too-large (file-error)
   ((size
-    :initarg :size
-    :reader file-too-large-size
-    :type (integer 0)
+    :initarg       :size
+    :reader        file-too-large-size
+    :type          (integer 0)
     :documentation "The file's size in octets.")
    (limit
-    :initarg :limit
-    :reader file-too-large-limit
-    :type (integer 0)
+    :initarg       :limit
+    :reader        file-too-large-limit
+    :type          (integer 0)
     :documentation "The largest size the reader accepted."))
   (:report (lambda (condition stream)
              (format stream "~A is ~:D octets, more than the ~:D a read accepts."
@@ -80,7 +80,7 @@ VALIDATION-FUNCTION runs when given; PATHNAME must then still name the opened
 object, every octet must arrive, and the object's size and times must not
 change during the read (FILE-CHANGED). Octets that are not UTF-8 signal
 FILE-NOT-UTF-8. Opening failures propagate from OPEN-REGULAR-FILE."
-  (let ((path (pathname pathname))
+  (let ((path   (pathname pathname))
         (stream nil))
     (unwind-protect
          (multiple-value-bind (opened information)
@@ -126,11 +126,11 @@ FILE-NOT-UTF-8. Opening failures propagate from OPEN-REGULAR-FILE."
 (defun files--temporary-sibling (target)
   "Return a hidden temporary pathname beside TARGET with a fresh random suffix."
   (make-pathname
-   :name (format nil ".~A.~36R"
-                 (or (pathname-name target) "file")
-                 (random (expt 2 64) *files--random-state*))
-   :type "tmp"
-   :version nil
+   :name     (format nil ".~A.~36R"
+                     (or (pathname-name target) "file")
+                     (random (expt 2 64) *files--random-state*))
+   :type     "tmp"
+   :version  nil
    :defaults target))
 
 (ls-compat::-> files--claim-temporary (pathname) pathname)
@@ -141,8 +141,8 @@ FILE-NOT-UTF-8. Opening failures propagate from OPEN-REGULAR-FILE."
         do (handler-case
                (progn
                  (with-open-file (stream candidate
-                                         :direction :output
-                                         :if-exists :error
+                                         :direction         :output
+                                         :if-exists         :error
                                          :if-does-not-exist :create)
                    (declare (ignorable stream)))
                  (return candidate))
@@ -187,7 +187,7 @@ whether publication succeeded or anything failed. Signals
 TEMPORARY-FILE-UNAVAILABLE when no temporary sibling can be created. Returns
 TARGET as a pathname."
   (check-type if-exists publication-policy)
-  (let ((target (pathname target))
+  (let ((target    (pathname target))
         (temporary nil))
     (ensure-directories-exist target)
     (unwind-protect
@@ -228,20 +228,20 @@ PUBLISH-FUNCTION have their PUBLISH-PATHNAME meanings. Returns TARGET."
      (etypecase content
        (ls-compat::octet-vector
         (with-open-file (stream temporary
-                                :direction :output
-                                :if-exists :supersede
+                                :direction    :output
+                                :if-exists    :supersede
                                 :element-type '(unsigned-byte 8))
           (write-sequence content stream)
           (finish-output stream)))
        ((or string function)
         (with-open-file (stream temporary
-                                :direction :output
-                                :if-exists :supersede
+                                :direction       :output
+                                :if-exists       :supersede
                                 :external-format external-format)
           (if (stringp content)
               (write-string content stream)
               (funcall content stream))
           (finish-output stream)))))
-   :if-exists if-exists
+   :if-exists        if-exists
    :prepare-function prepare-function
    :publish-function publish-function))

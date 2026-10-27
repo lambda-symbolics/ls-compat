@@ -3,7 +3,6 @@
 (defvar *test-failures* nil
   "Descriptions of failed ls-compat regression checks.")
 
-
 ;;;; -- Test helpers --
 
 (ls-compat::-> tests--check (t string) t)
@@ -31,7 +30,7 @@
 (ls-compat::-> tests--utf8-round-trip () t)
 (defun tests--utf8-round-trip ()
   "Check portable UTF-8 encoding and decoding."
-  (let* ((text "Příliš žluťoučký kůň")
+  (let* ((text   "Příliš žluťoučký kůň")
          (octets (utf8-string-to-octets text)))
     (tests--check
      (equalp octets
@@ -105,7 +104,7 @@
 (ls-compat::-> tests--current-process-group () t)
 (defun tests--current-process-group ()
   "Check current process group lookup and liveness."
-  (let* ((process-id (current-process-id))
+  (let* ((process-id       (current-process-id))
          (process-group-id (process-group-id process-id)))
     (tests--check (process-alive-p process-id)
                   "Current process is not alive.")
@@ -124,10 +123,10 @@
             (pathnamep (make-directory-exclusively directory :mode #o700))
             "Exclusive directory creation did not return a pathname.")
            (tests--check (= #o700 (logand #o777 (file-mode directory)))
-                          "New directory mode is not 0700.")
+                         "New directory mode is not 0700.")
            (setf (file-mode directory) #o755)
            (tests--check (= #o755 (logand #o777 (file-mode directory)))
-                          "Updated directory mode is not 0755."))
+                         "Updated directory mode is not 0755."))
       (ignore-errors
         (uiop:delete-directory-tree directory :validate t)))))
 
@@ -150,7 +149,7 @@
 (defun tests--publish-file-replaces ()
   "Check text and octet publication replaces existing targets without leftovers."
   (let* ((directory (tests--temporary-directory))
-         (target (merge-pathnames "published.txt" directory)))
+         (target    (merge-pathnames "published.txt" directory)))
     (unwind-protect
          (progn
            (tests--check (equal target (publish-file target "first"))
@@ -160,7 +159,7 @@
            (publish-file target (lambda (stream) (write-string "second" stream)))
            (tests--check (string= "second" (tests--read-text target))
                          "Writer publication did not replace the text.")
-           (publish-file target (make-array 3 :element-type '(unsigned-byte 8)
+           (publish-file target (make-array 3 :element-type     '(unsigned-byte 8)
                                               :initial-contents '(104 105 33)))
            (tests--check (string= "hi!" (tests--read-text target))
                          "Octet publication did not replace the content.")
@@ -172,7 +171,7 @@
 (defun tests--publish-file-cleans-up-failures ()
   "Check a failing producer leaves neither a target nor a temporary."
   (let* ((directory (tests--temporary-directory))
-         (target (merge-pathnames "never.txt" directory)))
+         (target    (merge-pathnames "never.txt" directory)))
     (unwind-protect
          (progn
            (tests--check
@@ -194,8 +193,8 @@
 (defun tests--publish-pathname-hooks ()
   "Check the prepare and publish hooks see the temporary before the target exists."
   (let* ((directory (tests--temporary-directory))
-         (target (merge-pathnames "hooked.txt" directory))
-         (prepared nil)
+         (target    (merge-pathnames "hooked.txt" directory))
+         (prepared  nil)
          (published nil))
     (unwind-protect
          (progn
@@ -222,7 +221,7 @@
 (defun tests--publish-file-refuses-existing ()
   "Check no-clobber publication keeps an occupied target or reports unsupport."
   (let* ((directory (tests--temporary-directory))
-         (target (merge-pathnames "exclusive.txt" directory)))
+         (target    (merge-pathnames "exclusive.txt" directory)))
     (unwind-protect
          (progn
            (publish-file target "original")
@@ -293,8 +292,8 @@
 (defun tests--file-information-and-reasons ()
   "Check kinds, privacy, read-only state, and failure reasons."
   (let* ((directory (tests--temporary-directory))
-         (file (merge-pathnames "plain.txt" directory))
-         (missing (merge-pathnames "missing/below.txt" directory)))
+         (file      (merge-pathnames "plain.txt" directory))
+         (missing   (merge-pathnames "missing/below.txt" directory)))
     (unwind-protect
          (progn
            (publish-file file "plain")
@@ -335,9 +334,9 @@
 (defun tests--regular-file-ranges ()
   "Check standard byte lengths and bounded seeks retain the opened file identity."
   (let* ((directory (tests--temporary-directory))
-         (file (merge-pathnames "ranges.bin" directory))
-         (original (merge-pathnames "original.bin" directory))
-         (octets (make-array 65537 :element-type '(unsigned-byte 8))))
+         (file      (merge-pathnames "ranges.bin" directory))
+         (original  (merge-pathnames "original.bin" directory))
+         (octets    (make-array 65537 :element-type '(unsigned-byte 8))))
     (unwind-protect
          (progn
            (ensure-directories-exist file)
@@ -403,9 +402,9 @@
 (defun tests--canonical-pathnames ()
   "Check link resolution, missing tails, and containment through links."
   (let* ((directory (tests--temporary-directory))
-         (inside (merge-pathnames "inside/" directory))
-         (outside (merge-pathnames "outside/" directory))
-         (escape (merge-pathnames "inside/escape" directory)))
+         (inside    (merge-pathnames "inside/" directory))
+         (outside   (merge-pathnames "outside/" directory))
+         (escape    (merge-pathnames "inside/escape" directory)))
     (unwind-protect
          (progn
            (ensure-directories-exist inside)
@@ -454,9 +453,9 @@
 (defun tests--read-file-text ()
   "Check bounded reading, size limits, link refusal, non-files, and UTF-8 checks."
   (let* ((directory (tests--temporary-directory))
-         (file (merge-pathnames "text.txt" directory))
-         (link (merge-pathnames "link.txt" directory))
-         (binary (merge-pathnames "binary.bin" directory)))
+         (file      (merge-pathnames "text.txt" directory))
+         (link      (merge-pathnames "link.txt" directory))
+         (binary    (merge-pathnames "binary.bin" directory)))
     (unwind-protect
          (progn
            (publish-file file "Příliš žluťoučký kůň")
@@ -498,25 +497,25 @@
 (defun tests--tcp-lifecycle ()
   "Check listener creation, client connection, acceptance, and streams."
   (let ((listener (tcp-listen "127.0.0.1" 0))
-        (client nil)
-        (server nil))
+        (client   nil)
+        (server   nil))
     (unwind-protect
          (let ((port (tcp-local-port listener)))
            (setf client (tcp-connect "127.0.0.1" port)
                  server (tcp-accept listener))
            (tests--check (streamp (tcp-stream client))
-                          "TCP client has no stream.")
+                         "TCP client has no stream.")
            (tests--check (streamp (tcp-stream server))
-                          "Accepted TCP connection has no stream.")
-           (let ((payload #(0 1 2 253 254 255))
+                         "Accepted TCP connection has no stream.")
+           (let ((payload  #(0 1 2 253 254 255))
                  (received (make-array 6 :element-type '(unsigned-byte 8))))
              (write-sequence payload (tcp-stream client))
              (finish-output (tcp-stream client))
              (tests--check (= (length payload)
                               (read-sequence received (tcp-stream server)))
-                            "Accepted TCP connection did not receive every octet.")
+                           "Accepted TCP connection did not receive every octet.")
              (tests--check (equalp payload received)
-                            "TCP octets changed during transfer.")))
+                           "TCP octets changed during transfer.")))
       (dolist (socket (list server client listener))
         (when socket
           (ignore-errors

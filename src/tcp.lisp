@@ -30,9 +30,9 @@ ELEMENT-TYPE controls streams created for accepted sockets. A zero PORT requests
 an operating-system-selected ephemeral port."
   (check-type backlog (integer 1 *))
   (usocket:socket-listen host port
-                         :backlog backlog
+                         :backlog       backlog
                          :reuse-address reuse-address
-                         :element-type element-type))
+                         :element-type  element-type))
 
 (ls-compat::-> tcp-accept (t &key (:element-type t)) t)
 (defun tcp-accept (listener &key (element-type '(unsigned-byte 8)))

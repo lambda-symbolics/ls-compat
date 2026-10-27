@@ -15,9 +15,9 @@
 
 (define-condition link-failed (file-error)
   ((message
-    :initarg :message
-    :reader link-failed-message
-    :type string
+    :initarg       :message
+    :reader        link-failed-message
+    :type          string
     :documentation "The operating system's explanation of the failure."))
   (:report
    (lambda (condition stream)
@@ -28,9 +28,9 @@
 
 (define-condition mode-failed (file-error)
   ((message
-    :initarg :message
-    :reader mode-failed-message
-    :type string
+    :initarg       :message
+    :reader        mode-failed-message
+    :type          string
     :documentation "The operating system's explanation of the failure."))
   (:report
    (lambda (condition stream)
@@ -45,29 +45,29 @@
 
 (define-condition file-operation-failed (file-error)
   ((operation
-    :initarg :operation
-    :reader file-operation-failed-operation
-    :type keyword
+    :initarg       :operation
+    :reader        file-operation-failed-operation
+    :type          keyword
     :documentation "The operation that failed: :INSPECT, :OPEN, :LIST, or :RESOLVE.")
    (message
-    :initarg :message
-    :reader file-operation-failed-message
-    :type string
+    :initarg       :message
+    :reader        file-operation-failed-message
+    :type          string
     :documentation "The operating system's explanation of the failure.")
    (reason
-    :initarg :reason
+    :initarg  :reason
     :initform ':failed
-    :reader file-operation-failed-reason
-    :type failure-reason
+    :reader   file-operation-failed-reason
+    :type     failure-reason
     :documentation
     "Why the operation failed: :MISSING when nothing exists there, :EXISTS,
 :NOT-DIRECTORY for a path through a non-directory, :SYMBOLIC-LINK when a link
 was refused, and :FAILED otherwise.")
    (code
-    :initarg :code
-    :initform nil
-    :reader file-operation-failed-code
-    :type (or null integer)
+    :initarg       :code
+    :initform      nil
+    :reader        file-operation-failed-code
+    :type          (or null integer)
     :documentation "The host error number, an errno or a Windows error code, when known."))
   (:report
    (lambda (condition stream)
@@ -79,9 +79,9 @@ was refused, and :FAILED otherwise.")
 
 (define-condition not-regular-file (file-error)
   ((kind
-    :initarg :kind
-    :reader not-regular-file-kind
-    :type keyword
+    :initarg       :kind
+    :reader        not-regular-file-kind
+    :type          keyword
     :documentation "The kind of object found instead of a regular file."))
   (:report
    (lambda (condition stream)
@@ -154,9 +154,12 @@ SBCL."
     (sb-posix:syscall-error (condition)
       (let ((errno (sb-posix:syscall-errno condition)))
         (cond
-          ((= errno sb-posix:esrch) ':dead)
-          ((= errno sb-posix:eperm) ':alive)
-          (t ':unknown))))
+          ((= errno sb-posix:esrch)
+           ':dead)
+          ((= errno sb-posix:eperm)
+           ':alive)
+          (t
+           ':unknown))))
     (error ()
       ':unknown))
   #+(and sbcl win32)
@@ -220,8 +223,10 @@ SBCL on hosts with process groups."
     (sb-posix:kill
      (- process-group-id)
      (ecase signal
-       (:terminate sb-posix:sigterm)
-       (:kill sb-posix:sigkill)))
+       (:terminate
+        sb-posix:sigterm)
+       (:kill
+        sb-posix:sigkill)))
     process-group-id)
   #-(and sbcl (not win32))
   (posix--unsupported 'signal-process-group))
@@ -239,8 +244,10 @@ process object instead."
   (progn
     (sb-posix:kill process-id
                    (ecase signal
-                     (:terminate sb-posix:sigterm)
-                     (:kill sb-posix:sigkill)))
+                     (:terminate
+                      sb-posix:sigterm)
+                     (:kill
+                      sb-posix:sigkill)))
     process-id)
   #-(and sbcl (not win32))
   (posix--unsupported 'signal-process))
@@ -256,7 +263,7 @@ a host without ps yields NIL. Each identifier appears once."
           (handler-case
               (let ((output
                       (uiop:run-program '("ps" "-ax" "-o" "pid=" "-o" "ppid=")
-                                        :output ':string
+                                        :output              ':string
                                         :ignore-error-status t)))
                 (loop for line in (uiop:split-string output :separator '(#\Newline))
                       for fields = (remove "" (uiop:split-string line :separator '(#\Space #\Tab))
@@ -359,7 +366,7 @@ volume for hard links. The POSIX system currently supports SBCL."
           (error 'link-target-exists :pathname (pathname target))
           (error 'link-failed
                  :pathname (pathname target)
-                 :message (princ-to-string condition)))))
+                 :message  (princ-to-string condition)))))
   #+(and sbcl win32)
   (when (zerop (win32--create-hard-link (posix--native-namestring target)
                                         (posix--native-namestring source)
@@ -370,7 +377,7 @@ volume for hard links. The POSIX system currently supports SBCL."
           (error 'link-target-exists :pathname (pathname target))
           (error 'link-failed
                  :pathname (pathname target)
-                 :message (format nil "Windows error ~D" code)))))
+                 :message  (format nil "Windows error ~D" code)))))
   #-sbcl
   (posix--unsupported 'link-file)
   (pathname target))
@@ -429,11 +436,16 @@ all three as false when the security descriptor cannot be read."
 (defun posix--failure-reason (errno)
   "Return the portable FAILURE-REASON for ERRNO."
   (cond
-    ((= errno sb-posix:enoent) ':missing)
-    ((= errno sb-posix:eexist) ':exists)
-    ((= errno sb-posix:enotdir) ':not-directory)
-    ((= errno sb-posix:eloop) ':symbolic-link)
-    (t ':failed)))
+    ((= errno sb-posix:enoent)
+     ':missing)
+    ((= errno sb-posix:eexist)
+     ':exists)
+    ((= errno sb-posix:enotdir)
+     ':not-directory)
+    ((= errno sb-posix:eloop)
+     ':symbolic-link)
+    (t
+     ':failed)))
 
 (ls-compat::-> posix--operation-failure
   (keyword pathname-designator t &key (:reason (or null failure-reason))) nil)
@@ -449,27 +461,32 @@ classifies an operation-specific error instead of the generic errno mapping."
                nil))
     (error 'file-operation-failed
            :operation operation
-           :pathname (pathname pathname)
-           :message (princ-to-string cause)
-           :reason (or reason
-                       (if errno
-                           #+(and sbcl (not win32)) (posix--failure-reason errno)
-                           #-(and sbcl (not win32)) ':failed
-                           ':failed))
-           :code errno)))
+           :pathname  (pathname pathname)
+           :message   (princ-to-string cause)
+           :reason    (or reason
+                          (if errno
+                              #+(and sbcl (not win32)) (posix--failure-reason errno)
+                              #-(and sbcl (not win32)) ':failed
+                              ':failed))
+           :code      errno)))
 
 #+(and sbcl (not win32))
 (defun posix--stat-information (stat)
   "Return the FILE-INFORMATION described by SB-POSIX STAT."
-  (let* ((mode (sb-posix:stat-mode stat))
+  (let* ((mode    (sb-posix:stat-mode stat))
          (owned-p (= (sb-posix:stat-uid stat) (sb-posix:getuid))))
     (make-file-information
      (cond
-       ((sb-posix:s-isreg mode) ':file)
-       ((sb-posix:s-isdir mode) ':directory)
-       ((sb-posix:s-islnk mode) ':symbolic-link)
-       ((sb-posix:s-issock mode) ':socket)
-       (t ':other))
+       ((sb-posix:s-isreg mode)
+        ':file)
+       ((sb-posix:s-isdir mode)
+        ':directory)
+       ((sb-posix:s-islnk mode)
+        ':symbolic-link)
+       ((sb-posix:s-issock mode)
+        ':socket)
+       (t
+        ':other))
      (cons (sb-posix:stat-dev stat) (sb-posix:stat-ino stat))
      (sb-posix:stat-size stat)
      (sb-posix:stat-mtime stat)
@@ -564,16 +581,16 @@ currently supports SBCL."
            (unless (eq (file-information-kind information) ':file)
              (error 'not-regular-file
                     :pathname (pathname pathname)
-                    :kind (file-information-kind information)))
+                    :kind     (file-information-kind information)))
            ;; SBCL's :FILE associates the descriptor with a file for FILE-LENGTH;
            ;; :PATHNAME alone supplies pathname metadata. Neither reopens the file.
            (let ((stream (sb-sys:make-fd-stream descriptor
-                                                :input t
-                                                :element-type element-type
+                                                :input           t
+                                                :element-type    element-type
                                                 :external-format external-format
-                                                :file (posix--native-namestring pathname)
-                                                :pathname (pathname pathname)
-                                                :auto-close t)))
+                                                :file            (posix--native-namestring pathname)
+                                                :pathname        (pathname pathname)
+                                                :auto-close      t)))
              (setf descriptor nil)
              (values stream information)))
       (when descriptor
@@ -700,10 +717,10 @@ POSIX system currently supports SBCL."
                        (sb-posix:syscall-errno inspection)))))
         (error 'file-operation-failed
                :operation ':resolve
-               :pathname (pathname pathname)
-               :message (princ-to-string condition)
-               :reason (if errno (posix--failure-reason errno) ':failed)
-               :code errno))))
+               :pathname  (pathname pathname)
+               :message   (princ-to-string condition)
+               :reason    (if errno (posix--failure-reason errno) ':failed)
+               :code      errno))))
   #-sbcl
   (posix--unsupported 'resolve-pathname))
 
@@ -725,19 +742,19 @@ POSIX system currently supports SBCL."
     (if (not missing-p)
         canonical
         (let* ((components (pathname-directory directory))
-               (leaf (first (last components))))
+               (leaf       (first (last components))))
           (unless (stringp leaf)
             (error 'file-operation-failed
                    :operation ':resolve
-                   :pathname original
-                   :message (format nil "~A has no resolvable existing ancestor."
-                                    (posix--native-namestring original))))
+                   :pathname  original
+                   :message   (format nil "~A has no resolvable existing ancestor."
+                                      (posix--native-namestring original))))
           (merge-pathnames
            (make-pathname :directory (list ':relative leaf) :name nil :type nil)
            (posix--canonical-directory
             (make-pathname :directory (butlast components)
                            :name nil :type nil :version nil
-                           :defaults directory)
+                           :defaults  directory)
             original))))))
 
 (ls-compat::-> canonical-pathname (pathname-designator) pathname)
@@ -755,8 +772,8 @@ rather than being mistaken for a missing path."
       (if (not missing-p)
           canonical
           (merge-pathnames
-           (make-pathname :name (pathname-name pathname)
-                          :type (pathname-type pathname)
+           (make-pathname :name    (pathname-name pathname)
+                          :type    (pathname-type pathname)
                           :version (pathname-version pathname))
            (posix--canonical-directory (uiop:pathname-directory-pathname pathname)
                                        pathname))))))

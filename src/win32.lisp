@@ -300,9 +300,12 @@
     (if (zerop handle)
         (let ((code (win32--get-last-error)))
           (cond
-            ((= code *win32-error-invalid-parameter*) ':dead)
-            ((= code *win32-error-access-denied*) ':alive)
-            (t ':unknown)))
+            ((= code *win32-error-invalid-parameter*)
+             ':dead)
+            ((= code *win32-error-access-denied*)
+             ':alive)
+            (t
+             ':unknown)))
         (unwind-protect
              (sb-alien:with-alien ((exit-code (sb-alien:unsigned 32)))
                (if (zerop (win32--get-exit-code-process handle
@@ -377,7 +380,7 @@ creates, so ownership checks treat that group as the user then."
   "Signal MODE-FAILED for Windows error CODE raised by OPERATION on PATHNAME."
   (error 'mode-failed
          :pathname (pathname pathname)
-         :message (format nil "~A failed with Windows error ~D" operation code)))
+         :message  (format nil "~A failed with Windows error ~D" operation code)))
 
 (ls-compat::-> win32--sid-octets (sb-sys:system-area-pointer)
   (simple-array (unsigned-byte 8) (*)))
@@ -452,7 +455,7 @@ read-only attribute then carries the owner write bit."
       (unless (zerop status)
         (win32--security-failure pathname "GetNamedSecurityInfoW" status))
       (unwind-protect
-           (let* ((user (win32--current-user-sid))
+           (let* ((user    (win32--current-user-sid))
                   (owned-p (win32--owner-p (win32--sid-octets (sb-alien:alien-sap owner))))
                   (entries (if (zerop (sb-sys:sap-int (sb-alien:alien-sap dacl)))
                                ':unrestricted
@@ -484,7 +487,7 @@ A directory's entries are inheritable: a file created below it with no
 security descriptor of its own takes them over, as a file created in a POSIX
 0700 directory stays readable by its owner. Without inheritance such a file
 would carry an empty list and deny everyone, its creator included."
-  (let ((user (win32--current-user-sid))
+  (let ((user        (win32--current-user-sid))
         (inheritance (if (logtest (win32--attributes pathname native)
                                   *win32-file-attribute-directory*)
                          *win32-sub-containers-and-objects-inherit*
@@ -559,14 +562,14 @@ would carry an empty list and deny everyone, its creator included."
 (ls-compat::-> win32--file-mode (pathname-designator) (integer 0 #o777))
 (defun win32--file-mode (pathname)
   "Return the POSIX permission bits PATHNAME's access control list expresses."
-  (let* ((native (win32--native pathname))
-         (attributes (win32--attributes pathname native))
+  (let* ((native      (win32--native pathname))
+         (attributes  (win32--attributes pathname native))
          (directory-p (logtest attributes *win32-file-attribute-directory*)))
     (multiple-value-bind (private-p owner-write-p)
         (win32--owner-access pathname native)
-      (let ((mode (if private-p
-                      (if directory-p #o700 #o600)
-                      (if directory-p #o755 #o644)))
+      (let ((mode       (if private-p
+                            (if directory-p #o700 #o600)
+                            (if directory-p #o755 #o644)))
             (writable-p (if private-p
                             owner-write-p
                             (not (logtest attributes *win32-file-attribute-readonly*)))))
@@ -577,8 +580,8 @@ would carry an empty list and deny everyone, its creator included."
 (ls-compat::-> win32--set-file-mode (pathname-designator (integer 0 #o777)) (integer 0 #o777))
 (defun win32--set-file-mode (pathname mode)
   "Express permission MODE on PATHNAME through its access control list."
-  (let* ((native (win32--native pathname))
-         (attributes (win32--attributes pathname native))
+  (let* ((native        (win32--native pathname))
+         (attributes    (win32--attributes pathname native))
          (owner-write-p (logtest mode #o200)))
     (cond
       ((not owner-write-p)
@@ -616,10 +619,10 @@ would carry an empty list and deny everyone, its creator included."
   "Signal FILE-OPERATION-FAILED for Windows error CODE raised by OPERATION."
   (error 'file-operation-failed
          :operation operation
-         :pathname (pathname pathname)
-         :message (format nil "Windows error ~D" code)
-         :reason (win32--failure-reason code)
-         :code code))
+         :pathname  (pathname pathname)
+         :message   (format nil "Windows error ~D" code)
+         :reason    (win32--failure-reason code)
+         :code      code))
 
 (ls-compat::-> win32--handle-privacy (integer) (values boolean boolean boolean))
 (defun win32--handle-privacy (handle)
@@ -638,7 +641,7 @@ only for private objects, whose access control list FILE-MODE wrote."
       (if (not (zerop status))
           (values nil nil nil)
           (unwind-protect
-               (let* ((user (win32--current-user-sid))
+               (let* ((user    (win32--current-user-sid))
                       (owned-p (win32--owner-p
                                 (win32--sid-octets (sb-alien:alien-sap owner))))
                       (entries (if (zerop (sb-sys:sap-int (sb-alien:alien-sap dacl)))
@@ -669,7 +672,7 @@ only for private objects, whose access control list FILE-MODE wrote."
   "Return the FILE-INFORMATION of the object behind HANDLE, a link when LINK-P."
   (sb-alien:with-alien ((information (sb-alien:array (sb-alien:unsigned 8) 64))
                         (basic (sb-alien:array (sb-alien:unsigned 8) 40)))
-    (let ((sap (sb-alien:alien-sap information))
+    (let ((sap       (sb-alien:alien-sap information))
           (basic-sap (sb-alien:alien-sap basic)))
       (when (zerop (win32--get-file-information-by-handle handle sap))
         (win32--operation-failure ':inspect "" (win32--get-last-error)))
@@ -805,15 +808,15 @@ object that refuses it is opened again with ACCESS alone."
            (unless (eq (file-information-kind information) ':file)
              (error 'not-regular-file
                     :pathname (pathname pathname)
-                    :kind (file-information-kind information)))
+                    :kind     (file-information-kind information)))
            ;; SBCL requires :FILE as well as :PATHNAME for FILE-LENGTH.
            (let ((stream (sb-sys:make-fd-stream handle
-                                                :input t
-                                                :element-type element-type
+                                                :input           t
+                                                :element-type    element-type
                                                 :external-format external-format
-                                                :file (win32--native pathname)
-                                                :pathname (pathname pathname)
-                                                :auto-close t)))
+                                                :file            (win32--native pathname)
+                                                :pathname        (pathname pathname)
+                                                :auto-close      t)))
              (setf handle nil)
              (values stream information)))
       (when handle
@@ -832,17 +835,17 @@ object that refuses it is opened again with ACCESS alone."
 (defun win32--directory-entries (pathname limit)
   "Enumerate PATHNAME with FindFirstFileW, classifying each entry by its attributes."
   (sb-alien:with-alien ((data (sb-alien:array (sb-alien:unsigned 8) 640)))
-    (let* ((sap (sb-alien:alien-sap data))
-           (handle (win32--find-first-file
-                    (concatenate 'string (win32--native pathname) "\\*") sap))
-           (entries nil)
-           (count 0)
+    (let* ((sap        (sb-alien:alien-sap data))
+           (handle     (win32--find-first-file
+                        (concatenate 'string (win32--native pathname) "\\*") sap))
+           (entries    nil)
+           (count      0)
            (exceeded-p nil))
       (when (= handle *win32-invalid-handle*)
         (win32--operation-failure ':list pathname (win32--get-last-error)))
       (unwind-protect
            (loop
-             (let ((name (win32--find-data-name sap))
+             (let ((name       (win32--find-data-name sap))
                    (attributes (sb-sys:sap-ref-32 sap 0)))
                (unless (member name '("." "..") :test #'string=)
                  (when (>= count limit)
