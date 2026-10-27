@@ -4,7 +4,7 @@
   :license "COLL-Attribution"
   :version "0.1.0"
   :depends-on (#:babel
-               #-ecl #:serapeum)
+               (:feature (:not :ecl) #:serapeum))
   :serial t
   :components ((:file "src/package")
                (:file "src/core"))
@@ -12,7 +12,7 @@
 
 (asdf:defsystem #:ls-compat/posix
   :description "Process and file operations backed by SB-POSIX, with a Win32 backend."
-  :depends-on (#:ls-compat #+sbcl #:sb-posix)
+  :depends-on (#:ls-compat (:feature :sbcl #:sb-posix))
   :serial t
   :components ((:file "src/win32" :if-feature (:and :sbcl :win32))
                (:file "src/posix")))
