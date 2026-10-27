@@ -431,6 +431,11 @@ creates, so ownership checks treat that group as the user then."
                              (sb-sys:sap-ref-32 sap 4)
                              (win32--sid-octets (sb-sys:sap+ sap 8))))))))
 
+(ls-compat::-> win32--acl-entry-sid (cons) (simple-array (unsigned-byte 8) (*)))
+(defun win32--acl-entry-sid (entry)
+  "Return the SID octets of ENTRY, an access control entry from WIN32--ACL-ENTRIES."
+  (nthcdr 2 entry))
+
 (ls-compat::-> win32--owner-access (pathname-designator string) (values boolean boolean))
 (defun win32--owner-access (pathname native)
   "Return whether NATIVE is private to the current user and whether its owner may write.
@@ -457,14 +462,15 @@ read-only attribute then carries the owner write bit."
                          (listp entries)
                          (every (lambda (entry)
                                   (and (eq (first entry) ':allow)
-                                       (or (equalp (cddr entry) user)
-                                           (equalp (cddr entry) *win32-system-sid-octets*))))
+                                       (or (equalp (win32--acl-entry-sid entry) user)
+                                           (equalp (win32--acl-entry-sid entry)
+                                                   *win32-system-sid-octets*))))
                                 entries)
                          t)))
              (values private-p
                      (or (not private-p)
                          (and (some (lambda (entry)
-                                      (and (equalp (cddr entry) user)
+                                      (and (equalp (win32--acl-entry-sid entry) user)
                                            (logtest (second entry) *win32-file-write-data*)))
                                     entries)
                               t))))
@@ -645,8 +651,8 @@ only for private objects, whose access control list FILE-MODE wrote."
                              (listp entries)
                              (every (lambda (entry)
                                       (and (eq (first entry) ':allow)
-                                           (or (equalp (cddr entry) user)
-                                               (equalp (cddr entry)
+                                           (or (equalp (win32--acl-entry-sid entry) user)
+                                               (equalp (win32--acl-entry-sid entry)
                                                        *win32-system-sid-octets*))))
                                     entries)
                              t)))
@@ -654,7 +660,7 @@ only for private objects, whose access control list FILE-MODE wrote."
                          private-p
                          (and private-p
                               (notany (lambda (entry)
-                                        (and (equalp (cddr entry) user)
+                                        (and (equalp (win32--acl-entry-sid entry) user)
                                              (logtest (second entry)
                                                       *win32-file-write-data*)))
                                       entries))))
