@@ -136,8 +136,8 @@ FILE-NOT-UTF-8. Opening failures propagate from OPEN-REGULAR-FILE."
 (ls-compat::-> files--claim-temporary (pathname) pathname)
 (defun files--claim-temporary (target)
   "Create and return an empty temporary sibling of TARGET that did not exist before."
-  (loop repeat *files--temporary-attempts*
-        for candidate = (files--temporary-sibling target)
+  (loop for candidate = (files--temporary-sibling target)
+        repeat *files--temporary-attempts*
         do (handler-case
                (progn
                  (with-open-file (stream candidate
