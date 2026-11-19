@@ -1,5 +1,5 @@
 (asdf:defsystem #:ls-compat
-  :description "Focused Common Lisp portability utilities for LS projects."
+  :description "Common Lisp portability utilities for LS projects."
   :author      "Lukáš Hozda"
   :license     "COLL-Attribution"
   :version     "0.1.0"
@@ -11,7 +11,7 @@
   :in-order-to ((asdf:test-op (asdf:test-op #:ls-compat/tests))))
 
 (asdf:defsystem #:ls-compat/posix
-  :description "Process and file operations backed by SB-POSIX, with a Win32 backend."
+  :description "Process and file operations backed by SB-POSIX, with a Win32 backend, fuck windows cuhh."
   :depends-on  (#:ls-compat (:feature :sbcl #:sb-posix))
   :serial      t
   :components  ((:file "src/win32" :if-feature (:and :sbcl :win32))

@@ -1,6 +1,6 @@
 (defpackage #:ls-compat
   (:use #:cl)
-  (:documentation "UTF-8 conversion, float checks, and timeouts that behave alike on every supported implementation.")
+  (:documentation "The Lambda Symbolics grab bag compatibility/utility library. At the moment, mostly UTF-8 conversion, float checks, and timeouts that behave similarly on every supported implementation.")
   (:export #:utf8-string-to-octets
            #:utf8-octets-to-string
            #:utf8-conversion-failed
