@@ -13,6 +13,9 @@
 (sb-alien:define-alien-routine ("GetLastError" win32--get-last-error)
     (sb-alien:unsigned 32))
 
+(sb-alien:define-alien-routine ("SetLastError" win32--set-last-error) sb-alien:void
+  (code (sb-alien:unsigned 32)))
+
 (sb-alien:define-alien-routine ("CloseHandle" win32--close-handle)
     sb-alien:int
   (handle (sb-alien:signed 64)))
@@ -72,6 +75,12 @@
   (handle (sb-alien:signed 64))
   (entry (* win32--process-entry)))
 
+(sb-alien:define-alien-routine ("GetEnvironmentVariableW" win32--get-environment-variable)
+    (sb-alien:unsigned 32)
+  (name win32--wide-string)
+  (buffer (* t))
+  (size (sb-alien:unsigned 32)))
+
 (sb-alien:define-alien-routine ("SetEnvironmentVariableW" win32--set-environment-variable) sb-alien:int
   (name win32--wide-string)
   (value win32--wide-string))
@@ -117,13 +126,53 @@
                                      (values nil nil))))))))
           (win32--close-handle handle)))))
 
+(defparameter *win32-error-environment-variable-not-found* 203
+  "ERROR_ENVVAR_NOT_FOUND.")
+
+(define-condition win32--environment-read-failed (error)
+  ((name :initarg :name :reader win32--environment-read-failed-name
+         :documentation "The environment variable that could not be read.")
+   (code :initarg :code :reader win32--environment-read-failed-code
+         :documentation "The native error code for the failing read."))
+  (:report (lambda (condition stream)
+             (format stream "Could not read process environment variable ~A (Windows error ~D)."
+                     (win32--environment-read-failed-name condition)
+                     (win32--environment-read-failed-code condition))))
+  (:documentation "The native Windows environment read did not return a value or absence."))
+
+(ls-compat::-> win32--process-environment-variable (string) (or null string))
+(defun win32--process-environment-variable (name)
+  "Read NAME from the process environment, preserving an explicitly empty value."
+  (sb-alien:with-alien ((buffer (sb-alien:array (sb-alien:unsigned 16) 32768)))
+    (let ((address (sb-alien:alien-sap buffer)))
+      ;; A successful empty read can leave the thread's last error unchanged.
+      (win32--set-last-error 0)
+      (let ((size (win32--get-environment-variable name address 32768)))
+        (cond
+          ((zerop size)
+           (let ((code (win32--get-last-error)))
+             (cond
+               ((zerop code)
+                "")
+               ((= code *win32-error-environment-variable-not-found*)
+                nil)
+               (t
+                (error 'win32--environment-read-failed :name name :code code)))))
+          ((>= size 32768)
+           (error 'win32--environment-read-failed :name name :code 122))
+          (t
+           (let ((octets (make-array (* 2 size) :element-type '(unsigned-byte 8))))
+             (dotimes (index (length octets))
+               (setf (aref octets index) (sb-sys:sap-ref-8 address index)))
+             (sb-ext:octets-to-string octets :external-format ':utf-16le))))))))
+
 (ls-compat::-> win32--set-process-environment-variable (string (or null string)) null)
 (defun win32--set-process-environment-variable (name value)
   "Update the CRT copy, then write the authoritative OS environment block."
   (win32--wputenv (format nil "~A=~A" name (or value "")))
   (when (zerop (win32--set-environment-variable name value))
     (let ((code (win32--get-last-error)))
-      (unless (and (null value) (= code 203))
+      (unless (and (null value) (= code *win32-error-environment-variable-not-found*))
         (error 'environment-update-failed :code code))))
   nil)
 
@@ -779,6 +828,22 @@ would carry an empty list and deny everyone, its creator included."
     (t
      ':failed)))
 
+(ls-compat::-> win32--non-directory-ancestor-p (pathname-designator) boolean)
+(defun win32--non-directory-ancestor-p (pathname)
+  "Return true only when a failed traversal has an observed non-directory ancestor."
+  (let* ((path   (uiop:ensure-absolute-pathname (pathname pathname) (uiop:getcwd)))
+         (parent (if (uiop:directory-pathname-p path)
+                     (uiop:pathname-parent-directory-pathname path)
+                     (uiop:pathname-directory-pathname path))))
+    (loop for ancestor = parent then (uiop:pathname-parent-directory-pathname ancestor)
+          while (rest (pathname-directory ancestor))
+          do (let ((attributes (win32--get-file-attributes (win32--native ancestor))))
+               (cond
+                 ((/= attributes *win32-invalid-file-attributes*)
+                  (return (not (logtest attributes *win32-file-attribute-directory*))))
+                 ((not (eq (win32--failure-reason (win32--get-last-error)) ':missing))
+                  (return nil)))))))
+
 (ls-compat::-> win32--operation-failure (keyword pathname-designator integer) nil)
 (defun win32--operation-failure (operation pathname code)
   "Signal FILE-OPERATION-FAILED for Windows error CODE raised by OPERATION."
@@ -786,7 +851,11 @@ would carry an empty list and deny everyone, its creator included."
          :operation operation
          :pathname  (pathname pathname)
          :message   (format nil "Windows error ~D" code)
-         :reason    (win32--failure-reason code)
+         :reason    (if (and (= code *win32-error-path-not-found*)
+                             (member operation '(:inspect :open :resolve))
+                             (win32--non-directory-ancestor-p pathname))
+                        ':not-directory
+                        (win32--failure-reason code))
          :code      code))
 
 (ls-compat::-> win32--handle-privacy (integer) (values boolean boolean boolean))

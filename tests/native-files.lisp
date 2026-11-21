@@ -63,8 +63,10 @@
                   (read-only  (logior attributes ls-compat.posix::*win32-file-attribute-readonly*)))
              (tests--check (not (zerop (ls-compat.posix::win32--set-file-attributes native read-only)))
                            "Could not set the test read-only attribute.")
-             (setf handle (ls-compat.posix::win32--create-file native 0 0 nil
-                                                            ls-compat.posix::*win32-open-existing* 0 0))
+             ;; A handle with zero desired access never imposes a sharing restriction.
+             (setf handle (ls-compat.posix::win32--create-file
+                           native ls-compat.posix::*win32-generic-read* 0 nil
+                           ls-compat.posix::*win32-open-existing* 0 0))
              (when (= handle ls-compat.posix::*win32-invalid-handle*)
                (error "Could not exclusively open the read-only test file."))
              (tests--check

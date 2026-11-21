@@ -719,8 +719,9 @@ paths propagate. Non-SBCL implementations signal UNSUPPORTED-OPERATION."
          (eq (file-information-kind information) ':file)
          (some (lambda (extension) (uiop:string-suffix-p lowercase extension))
                (remove "" (mapcar #'string-downcase
-                                  (uiop:split-string (or (uiop:getenv "PATHEXT") ".COM;.EXE;.BAT;.CMD")
-                                                     :separator '(#\;)))
+                                   (uiop:split-string
+                                    (or (win32--process-environment-variable "PATHEXT") ".COM;.EXE;.BAT;.CMD")
+                                    :separator '(#\;)))
                        :test #'string=))
          t))
   #-sbcl

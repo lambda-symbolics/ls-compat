@@ -189,18 +189,25 @@
                            (second sample))
                     "Parent parser confused empty, complete, malformed, or duplicate rows."))))
 
+(ls-compat::-> tests--process-environment-variable (string) (or null string))
+(defun tests--process-environment-variable (name)
+  "Observe the OS environment, distinguishing absence from a zero-length value."
+  #+(and sbcl win32) (ls-compat.posix::win32--process-environment-variable name)
+  #-(and sbcl win32) (uiop:getenv name))
+
 (ls-compat::-> tests--environment-mutation () t)
 (defun tests--environment-mutation ()
   "Distinguish absent, empty and nonempty settings and check child inheritance."
   (let* ((name   (format nil "LS_COMPAT_TEST_~D_~D"
                          (ls-compat.posix:current-process-id)
                          (random most-positive-fixnum *tests--random-state*)))
-         (before (uiop:getenv name)))
+         (before (tests--process-environment-variable name)))
     (unwind-protect
          (progn
            (ls-compat.posix:set-environment-variable name nil)
            (ls-compat.posix:set-environment-variable name nil)
-           (tests--check (null (uiop:getenv name)) "Removing a missing variable did not succeed.")
+           (tests--check (null (tests--process-environment-variable name))
+                         "Removing a missing variable did not succeed.")
            (ls-compat.posix:set-environment-variable name "portable-test")
            (tests--check (equal (uiop:getenv name) "portable-test") "Setting an environment variable failed.")
            (tests--check (equal "portable-test"
@@ -211,9 +218,10 @@
                                  :output ':string))
                          "The child did not inherit the new value.")
            (ls-compat.posix:set-environment-variable name "")
-           (tests--check (equal (uiop:getenv name) "") "An empty value was treated as absent.")
+           (tests--check (equal (tests--process-environment-variable name) "")
+                         "An empty value was treated as absent.")
            (ls-compat.posix:set-environment-variable name nil)
-           (tests--check (null (uiop:getenv name)) "The variable was not removed."))
+           (tests--check (null (tests--process-environment-variable name)) "The variable was not removed."))
       (ls-compat.posix:set-environment-variable name before))))
 
 (ls-compat::-> tests--executable-path () t)
@@ -237,7 +245,7 @@
              (tests--check (ls-compat.posix:executable-path-p program)
                            "A file with execute permission failed ACCESS."))
            #+win32
-           (let ((old (uiop:getenv "PATHEXT")))
+           (let ((old (tests--process-environment-variable "PATHEXT")))
              (unwind-protect
                   (progn
                     (ls-compat.posix:set-environment-variable "PATHEXT" nil)
@@ -510,7 +518,9 @@
                  (tests--check nil "A path through a file was observed."))
              (file-operation-failed (condition)
                (tests--check (eq ':not-directory (file-operation-failed-reason condition))
-                             "A path through a file did not report :NOT-DIRECTORY."))))
+                             (format nil "A path through a file reported ~S (native code ~S), not :NOT-DIRECTORY."
+                                     (file-operation-failed-reason condition)
+                                     (ls-compat.posix:file-operation-failed-code condition))))))
       (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
 
 (ls-compat::-> tests--regular-file-ranges () t)
@@ -663,6 +673,8 @@
                          "A directory was read as text.")
            (tests--make-symbolic-link file link)
            (tests--check (handler-case (progn (read-file-text link) nil)
+                           (not-regular-file (condition)
+                             (eq ':symbolic-link (ls-compat.posix:not-regular-file-kind condition)))
                            (file-operation-failed (condition)
                              (eq ':symbolic-link (file-operation-failed-reason condition))))
                          "A link was followed without FOLLOW-LINKS-P.")
