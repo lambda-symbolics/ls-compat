@@ -23,6 +23,18 @@ NaN self-inequality. Arithmetic failures while inspecting non-finite input are
 classified as non-finite instead of exposing an implementation-specific
 predicate.
 
+## UTF-8 measurement
+
+`utf8-string-length` and `utf8-string-prefix-end` share a scalar-value scan.
+They count one to four bytes per character and reject surrogates and values
+above U+10FFFF. Invalid input goes through the existing encoder to preserve its
+portable condition and native cause. A prefix scan validates the entire selected
+range even after the byte budget is exhausted.
+
+`internal-real-time-seconds` divides `get-internal-real-time` by
+`internal-time-units-per-second` coerced to `double-float`. It introduces no clock
+state or deadline policy.
+
 ## Timeout semantics
 
 `call-with-timeout` accepts an absolute duration in seconds. A `nil` duration

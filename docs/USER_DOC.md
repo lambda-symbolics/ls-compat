@@ -18,6 +18,15 @@ Load `ls-compat` for UTF-8 conversion and deadline handling.
 and `:end` bounds. They always use UTF-8 and do not depend on the implementation
 external format.
 
+Use `utf8-string-length` for an encoded byte count and
+`utf8-string-prefix-end` for the longest character prefix fitting a byte budget.
+Both accept the same `:start` and `:end` bounds without allocating encoded octets.
+The prefix function returns an index into the original string and validates the
+entire selected range, including text beyond that index.
+
+`internal-real-time-seconds` converts the process-local internal real time to
+double-float seconds for elapsed-time calculations.
+
 `finite-float-p` returns true only for a finite float. It rejects NaN and
 infinite values before a protocol serializes them as JSON numbers.
 

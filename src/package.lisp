@@ -3,10 +3,13 @@
   (:documentation "UTF-8 conversion, float checks, and timeouts that behave alike on every supported implementation.")
   (:export #:utf8-string-to-octets
            #:utf8-octets-to-string
+           #:utf8-string-length
+           #:utf8-string-prefix-end
            #:utf8-conversion-failed
            #:utf8-conversion-failed-direction
            #:utf8-conversion-failed-cause
            #:finite-float-p
+           #:internal-real-time-seconds
            #:call-with-timeout
            #:with-timeout
            #:timeout-expired

@@ -61,6 +61,83 @@
                                  (utf8-string-to-octets "Příliš žluťoučký" :start 7 :end 11)))
                 "Delimited conversion did not round-trip."))
 
+(ls-compat::-> tests--utf8-measurements () t)
+(defun tests--utf8-measurements ()
+  "Compare allocation-free measurements with the strict encoder at every bound."
+  (let* ((scalars (coerce (mapcar #'code-char
+                                '(0 #x7F #x80 #x7FF #x800 #xD7FF #xE000
+                                  #xFFFF #x10000 #x10FFFF))
+                          'string))
+         (texts   (list "" "hello" scalars
+                        (make-array 3 :element-type 'character
+                                      :displaced-to scalars :displaced-index-offset 2)
+                        (make-array 8 :element-type 'character :initial-element #\λ
+                                      :fill-pointer 4))))
+    (dolist (text texts)
+      (loop for start from 0 to (length text)
+            do (loop for end from start to (length text)
+                     for bytes = (length (utf8-string-to-octets text :start start :end end))
+                     do (tests--check (= bytes (utf8-string-length text :start start :end end))
+                                      "UTF-8 length differed from the encoder.")
+                        (loop for budget from 0 to (1+ bytes)
+                              for expected = (loop for index from start to end
+                                                   when (<= (length (utf8-string-to-octets
+                                                                     text :start start :end index))
+                                                            budget)
+                                                     maximize index)
+                              do (tests--check
+                                  (= expected (utf8-string-prefix-end
+                                               text budget :start start :end end))
+                                  "A UTF-8 prefix did not end at the longest fitting character."))))))
+  #+sbcl
+  (let* ((text   (make-string 4096 :initial-element #\λ))
+         (before (sb-ext:get-bytes-consed)))
+    (dotimes (index 100)
+      (utf8-string-length text)
+      (utf8-string-prefix-end text index))
+    (tests--check (= before (sb-ext:get-bytes-consed))
+                  "Valid UTF-8 measurement allocated heap storage.")))
+
+(ls-compat::-> tests--utf8-measurement-failures () t)
+(defun tests--utf8-measurement-failures ()
+  "Check rejected scalar values, invalid tails, and selected-range validation."
+  (dolist (code '(#xD800 #xDFFF #x110000))
+    (let ((character (ignore-errors (code-char code))))
+      (when character
+        (let* ((text     (concatenate 'string "a" (string character) "b"))
+               (original (handler-case (progn (utf8-string-to-octets text) nil)
+                           (utf8-conversion-failed (condition) condition))))
+          (dolist (operation (list (lambda () (utf8-string-length text))
+                                   (lambda () (utf8-string-prefix-end text 0))
+                                   (lambda () (utf8-string-prefix-end text 1))
+                                   (lambda () (utf8-string-prefix-end text 100))))
+            (tests--check
+             (handler-case (progn (funcall operation) nil)
+               (utf8-conversion-failed (condition)
+                 (and (eq :encode (utf8-conversion-failed-direction condition))
+                      (or (null original)
+                          (eq (type-of (utf8-conversion-failed-cause original))
+                              (type-of (utf8-conversion-failed-cause condition)))))))
+             "An invalid UTF-8 tail did not retain the encoder's failure."))
+          (tests--check (= 1 (utf8-string-length text :end 1))
+                        "UTF-8 length inspected text outside the selected range.")
+          (tests--check (= 3 (utf8-string-prefix-end text 1 :start 2))
+                        "UTF-8 prefix inspected text outside the selected range.")))))
+  (tests--check
+   (handler-case (progn (funcall (symbol-function 'utf8-string-prefix-end) "text" -1) nil)
+     (type-error () t))
+   "A negative byte budget did not signal TYPE-ERROR."))
+
+(ls-compat::-> tests--internal-real-time-seconds () t)
+(defun tests--internal-real-time-seconds ()
+  "Check the shared conversion's representation and bounds against raw ticks."
+  (let* ((units  (coerce internal-time-units-per-second 'double-float))
+         (before (/ (get-internal-real-time) units))
+         (actual (internal-real-time-seconds))
+         (after  (/ (get-internal-real-time) units)))
+    (tests--check (and (typep actual 'double-float) (<= before actual after))
+                  "Internal real time was not converted to double-float seconds.")))
+
 (ls-compat::-> tests--finite-floats () t)
 (defun tests--finite-floats ()
   "Check that ordinary and extreme finite floats are accepted."
@@ -617,6 +694,9 @@
   (let ((*test-failures* nil))
     (dolist (test '(tests--utf8-round-trip
                     tests--utf8-failures
+                    tests--utf8-measurements
+                    tests--utf8-measurement-failures
+                    tests--internal-real-time-seconds
                     tests--finite-floats
                     tests--timeout-signals-condition))
       (funcall test))
