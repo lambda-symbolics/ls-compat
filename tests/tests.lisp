@@ -164,6 +164,94 @@
 
 ;;;; -- POSIX --
 
+(ls-compat::-> tests--process-observation () t)
+(defun tests--process-observation ()
+  "Observe this process and distinguish a report of zero from no report."
+  (let ((pid (ls-compat.posix:current-process-id)))
+    (tests--check (typep (ls-compat.posix:process-resident-bytes pid) '(integer 1 *))
+                  "The running Lisp process did not report resident bytes.")
+    (tests--check (null (ls-compat.posix:process-resident-bytes (- pid)))
+                  "An invalid PID returned an observation.")
+    (multiple-value-bind (rows available-p) (ls-compat.posix:process-parent-snapshot)
+      (let ((row (assoc pid rows)))
+        (tests--check (and available-p row (typep (cdr row) '(integer 0 *)))
+                      "The parent snapshot did not contain the running test process."))))
+  #+(and sbcl (not win32))
+  (progn
+    (tests--check (eql 0 (ls-compat.posix::posix--unsigned-field " 0 "))
+                  "A measured zero must not become unavailable.")
+    (dolist (sample (list (list "" '(nil t))
+                          (list (format nil "3 1~%2 0~%") '(((3 . 1) (2 . 0)) t))
+                          (list (format nil "3 1~%bad~%") '(nil nil))
+                          (list (format nil "3 1~%3 0~%") '(nil nil))))
+      (tests--check (equal (multiple-value-list (ls-compat.posix::posix--parse-parent-snapshot
+                                                (first sample)))
+                           (second sample))
+                    "Parent parser confused empty, complete, malformed, or duplicate rows."))))
+
+(ls-compat::-> tests--environment-mutation () t)
+(defun tests--environment-mutation ()
+  "Distinguish absent, empty and nonempty settings and check child inheritance."
+  (let* ((name (format nil "LS_COMPAT_TEST_~D_~D"
+                       (ls-compat.posix:current-process-id)
+                       (random most-positive-fixnum *tests--random-state*)))
+         (before (uiop:getenv name)))
+    (unwind-protect
+         (progn
+           (ls-compat.posix:set-environment-variable name nil)
+           (ls-compat.posix:set-environment-variable name nil)
+           (tests--check (null (uiop:getenv name)) "Removing a missing variable did not succeed.")
+           (ls-compat.posix:set-environment-variable name "portable-test")
+           (tests--check (equal (uiop:getenv name) "portable-test") "Setting an environment variable failed.")
+           (tests--check (equal "portable-test"
+                                (uiop:run-program
+                                 #+win32 (list "powershell.exe" "-NoProfile" "-NonInteractive" "-Command"
+                                               (format nil "[Console]::Write($env:~A)" name))
+                                 #-win32 (list "sh" "-c" (format nil "printf '%s' \"$~A\"" name))
+                                 :output ':string))
+                         "The child did not inherit the new value.")
+           (ls-compat.posix:set-environment-variable name "")
+           (tests--check (equal (uiop:getenv name) "") "An empty value was treated as absent.")
+           (ls-compat.posix:set-environment-variable name nil)
+           (tests--check (null (uiop:getenv name)) "The variable was not removed."))
+      (ls-compat.posix:set-environment-variable name before))))
+
+(ls-compat::-> tests--executable-path () t)
+(defun tests--executable-path ()
+  "Check native execute permission or PATHEXT without searching for a file."
+  (let* ((directory (tests--temporary-directory))
+         (program   (merge-pathnames "probe.ExE" directory)))
+    (unwind-protect
+         (progn
+           (ensure-directories-exist program)
+           (tests--check (not (ls-compat.posix:executable-path-p program))
+                         "An absent path was executable.")
+           (with-open-file (stream program :direction ':output)
+             (write-line "fixture" stream))
+           #-win32
+           (progn
+             (setf (file-mode program) #o600)
+             (tests--check (not (ls-compat.posix:executable-path-p program))
+                           "A file without execute permission passed ACCESS.")
+             (setf (file-mode program) #o700)
+             (tests--check (ls-compat.posix:executable-path-p program)
+                           "A file with execute permission failed ACCESS."))
+           #+win32
+           (let ((old (uiop:getenv "PATHEXT")))
+             (unwind-protect
+                  (progn
+                    (ls-compat.posix:set-environment-variable "PATHEXT" nil)
+                    (tests--check (ls-compat.posix:executable-path-p program)
+                                  "The default PATHEXT did not match a mixed-case .EXE.")
+                    (ls-compat.posix:set-environment-variable "PATHEXT" "")
+                    (tests--check (not (ls-compat.posix:executable-path-p program))
+                                  "An empty PATHEXT incorrectly used defaults.")
+                    (ls-compat.posix:set-environment-variable "PATHEXT" ";.exe;;")
+                    (tests--check (ls-compat.posix:executable-path-p program)
+                                  "A custom PATHEXT did not match a mixed-case .EXE."))
+               (ls-compat.posix:set-environment-variable "PATHEXT" old))))
+      (uiop:delete-directory-tree directory :validate t :if-does-not-exist ':ignore))))
+
 (ls-compat::-> tests--posix-supported-p () boolean)
 (defun tests--posix-supported-p ()
   "Return whether this implementation provides the POSIX backend."
@@ -724,14 +812,17 @@
                     tests--timeout-signals-condition))
       (tests--run-case test))
     (when (tests--posix-supported-p)
-      (dolist (test '(tests--current-process-group
+      (dolist (test '(tests--process-observation
+                      tests--environment-mutation
+                      tests--executable-path
+                      #-win32 tests--current-process-group
                       tests--exclusive-directory-and-mode
-                      tests--descendant-processes
+                      #-win32 tests--descendant-processes
                       tests--file-information-and-reasons
                       tests--regular-file-ranges
                       tests--directory-names
                       tests--canonical-pathnames
-                      tests--signal-process
+                      #-win32 tests--signal-process
                       tests--confined-path-inspection
                       tests--native-files
                       #+(and sbcl win32) tests--native-read-only-failures

@@ -252,6 +252,91 @@ process object instead."
   #-(and sbcl (not win32))
   (posix--unsupported 'signal-process))
 
+#+(and sbcl (not win32))
+(ls-compat::-> posix--process-query (list) (values (or null string) boolean))
+#+(and sbcl (not win32))
+(defun posix--process-query (arguments)
+  "Run ps and report whether it exited successfully."
+  (handler-case
+      (multiple-value-bind (output errors status)
+          (uiop:run-program (cons "ps" arguments)
+                            :output ':string :error-output ':string
+                            :ignore-error-status t)
+        (declare (ignore errors))
+        (values output (eql status 0)))
+    (error ()
+      (values nil nil))))
+
+#+(and sbcl (not win32))
+(ls-compat::-> posix--unsigned-field (string) (or null (integer 0 *)))
+#+(and sbcl (not win32))
+(defun posix--unsigned-field (text)
+  "Parse an unsigned decimal field with optional surrounding whitespace."
+  (let ((field (string-trim '(#\Space #\Tab #\Newline #\Return) text)))
+    (when (and (plusp (length field)) (every #'digit-char-p field))
+      (parse-integer field))))
+
+(ls-compat::-> process-resident-bytes (t) (or null (integer 0 *)))
+(defun process-resident-bytes (process-id)
+  "Return the resident bytes for one positive PID, not a process group.
+
+NIL means no observation, including an invalid PID. A measured zero is zero.
+POSIX ps reports RSS in KiB; Windows reports WorkingSetSize in bytes. Neither
+observation establishes process identity. Non-SBCL implementations signal
+LS-COMPAT:UNSUPPORTED-OPERATION."
+  (declare (ignorable process-id))
+  #+(and sbcl (not win32))
+  (when (typep process-id '(integer 1 *))
+    (multiple-value-bind (output available-p)
+        (posix--process-query (list "-o" "rss=" "-p" (format nil "~D" process-id)))
+      (when available-p
+        (let ((kibibytes (posix--unsigned-field output)))
+          (when kibibytes
+            (* kibibytes 1024))))))
+  #+(and sbcl win32)
+  (win32--process-resident-bytes process-id)
+  #-sbcl
+  (posix--unsupported 'process-resident-bytes))
+
+#+(and sbcl (not win32))
+(ls-compat::-> posix--parse-parent-snapshot (string) (values list boolean))
+#+(and sbcl (not win32))
+(defun posix--parse-parent-snapshot (output)
+  "Parse PID/PPID rows, rejecting malformed or duplicate rows as a batch."
+  (let ((parents nil)
+        (seen    (make-hash-table)))
+    (dolist (line (uiop:split-string output :separator '(#\Newline)))
+      (let ((fields (remove "" (uiop:split-string line :separator '(#\Space #\Tab #\Return))
+                            :test #'string=)))
+        (when fields
+          (unless (= (length fields) 2)
+            (return-from posix--parse-parent-snapshot (values nil nil)))
+          (let ((pid    (posix--unsigned-field (first fields)))
+                (parent (posix--unsigned-field (second fields))))
+            (unless (and pid parent (not (gethash pid seen)))
+              (return-from posix--parse-parent-snapshot (values nil nil)))
+            (setf (gethash pid seen) t)
+            (push (cons pid parent) parents)))))
+    (values (nreverse parents) t)))
+
+(ls-compat::-> process-parent-snapshot () (values list boolean))
+(defun process-parent-snapshot ()
+  "Return (PID . PPID) rows and whether the host-wide observation completed.
+
+A successful empty observation returns NIL and T. A failed or incomplete
+observation returns NIL and NIL. These are parent relationships, not process
+group membership. Non-SBCL implementations signal LS-COMPAT:UNSUPPORTED-OPERATION."
+  #+(and sbcl (not win32))
+  (multiple-value-bind (output available-p)
+      (posix--process-query '("-ax" "-o" "pid=" "-o" "ppid="))
+    (if available-p
+        (posix--parse-parent-snapshot output)
+        (values nil nil)))
+  #+(and sbcl win32)
+  (win32--process-parent-snapshot)
+  #-sbcl
+  (posix--unsupported 'process-parent-snapshot))
+
 (ls-compat::-> descendant-process-ids ((integer 1 *)) list)
 (defun descendant-process-ids (process-id)
   "Return the live descendants of PROCESS-ID, deepest first, as a best-effort snapshot.
@@ -281,6 +366,38 @@ a host without ps yields NIL. Each identifier appears once."
                      when (and (= parent-pid parent) (/= pid parent))
                        append (append (descendants pid) (list pid)))))
       (remove-duplicates (descendants process-id) :test #'=))))
+
+
+;;;; -- Process environment --
+
+(define-condition environment-update-failed (error)
+  ((code :initarg       :code
+         :reader        environment-update-failed-code
+         :type          integer
+         :documentation "The Windows error code reported by SetEnvironmentVariableW."))
+  (:report (lambda (condition stream)
+             (format stream "Could not update the process environment (Windows error ~D)."
+                     (environment-update-failed-code condition))))
+  (:documentation "The Windows process environment block could not be changed."))
+
+(ls-compat::-> set-environment-variable (string (or null string)) null)
+(defun set-environment-variable (name value)
+  "Set process variable NAME to VALUE, or remove it when VALUE is NIL.
+
+Removing a missing variable succeeds. An empty string remains present in the
+OS environment inherited by children. On Windows, the CRT is also updated;
+the CRT represents an empty value as removal. Native failures propagate.
+Non-SBCL implementations signal LS-COMPAT:UNSUPPORTED-OPERATION."
+  (declare (ignorable name value))
+  #+(and sbcl (not win32))
+  (if value
+      (sb-posix:setenv name value 1)
+      (sb-posix:unsetenv name))
+  #+(and sbcl win32)
+  (win32--set-process-environment-variable name value)
+  #-sbcl
+  (posix--unsupported 'set-environment-variable)
+  nil)
 
 
 ;;;; -- Filesystem modes --
@@ -516,6 +633,38 @@ inspected. The POSIX system currently supports SBCL."
       (posix--operation-failure ':inspect pathname condition)))
   #-sbcl
   (posix--unsupported 'file-information))
+
+(ls-compat::-> executable-path-p (pathname-designator) boolean)
+(defun executable-path-p (pathname)
+  "Check PATHNAME without searching for an executable.
+
+POSIX checks access(X_OK), which can also succeed for a searchable directory.
+Windows requires a regular file, following links, with a case-insensitive
+PATHEXT suffix. Only an absent PATHEXT uses .COM;.EXE;.BAT;.CMD; an empty
+PATHEXT matches nothing. Windows inspection failures other than missing
+paths propagate. Non-SBCL implementations signal UNSUPPORTED-OPERATION."
+  (declare (ignorable pathname))
+  #+(and sbcl (not win32))
+  (handler-case
+      (zerop (sb-posix:access (posix--native-namestring pathname) sb-posix:x-ok))
+    (sb-posix:syscall-error ()
+      nil))
+  #+(and sbcl win32)
+  (let ((information (handler-case (file-information pathname :follow-links-p t)
+                       (file-operation-failed (condition)
+                         (unless (eq (file-operation-failed-reason condition) ':missing)
+                           (error condition)))))
+        (lowercase   (string-downcase (win32--native pathname))))
+    (and information
+         (eq (file-information-kind information) ':file)
+         (some (lambda (extension) (uiop:string-suffix-p lowercase extension))
+               (remove "" (mapcar #'string-downcase
+                                  (uiop:split-string (or (uiop:getenv "PATHEXT") ".COM;.EXE;.BAT;.CMD")
+                                                     :separator '(#\;)))
+                       :test #'string=))
+         t))
+  #-sbcl
+  (posix--unsupported 'executable-path-p))
 
 (ls-compat::-> stream-file-information (stream) file-information)
 (defun stream-file-information (stream)

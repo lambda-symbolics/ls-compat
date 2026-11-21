@@ -28,6 +28,105 @@
   (handle (sb-alien:signed 64))
   (code (* (sb-alien:unsigned 32))))
 
+(sb-alien:define-alien-type win32--process-memory-counters
+    (sb-alien:struct win32--process-memory-counters
+      (size (sb-alien:unsigned 32))
+      (page-fault-count (sb-alien:unsigned 32))
+      (peak-working-set-size (sb-alien:unsigned 64))
+      (working-set-size (sb-alien:unsigned 64))
+      (quota-peak-paged-pool-usage (sb-alien:unsigned 64))
+      (quota-paged-pool-usage (sb-alien:unsigned 64))
+      (quota-peak-non-paged-pool-usage (sb-alien:unsigned 64))
+      (quota-non-paged-pool-usage (sb-alien:unsigned 64))
+      (pagefile-usage (sb-alien:unsigned 64))
+      (peak-pagefile-usage (sb-alien:unsigned 64))))
+
+(sb-alien:define-alien-type win32--process-entry
+    (sb-alien:struct win32--process-entry
+      (size (sb-alien:unsigned 32))
+      (usage (sb-alien:unsigned 32))
+      (process-id (sb-alien:unsigned 32))
+      (default-heap-id (sb-alien:unsigned 64))
+      (module-id (sb-alien:unsigned 32))
+      (threads (sb-alien:unsigned 32))
+      (parent-process-id (sb-alien:unsigned 32))
+      (priority-base (sb-alien:signed 32))
+      (flags (sb-alien:unsigned 32))
+      (executable (array (sb-alien:unsigned 16) 260))))
+
+(sb-alien:define-alien-routine ("K32GetProcessMemoryInfo" win32--get-process-memory-info) sb-alien:int
+  (handle (sb-alien:signed 64))
+  (counters (* win32--process-memory-counters))
+  (size (sb-alien:unsigned 32)))
+
+(sb-alien:define-alien-routine ("CreateToolhelp32Snapshot" win32--create-process-snapshot)
+    (sb-alien:signed 64)
+  (flags (sb-alien:unsigned 32))
+  (process-id (sb-alien:unsigned 32)))
+
+(sb-alien:define-alien-routine ("Process32FirstW" win32--process-first) sb-alien:int
+  (handle (sb-alien:signed 64))
+  (entry (* win32--process-entry)))
+
+(sb-alien:define-alien-routine ("Process32NextW" win32--process-next) sb-alien:int
+  (handle (sb-alien:signed 64))
+  (entry (* win32--process-entry)))
+
+(sb-alien:define-alien-routine ("SetEnvironmentVariableW" win32--set-environment-variable) sb-alien:int
+  (name win32--wide-string)
+  (value win32--wide-string))
+
+(sb-alien:define-alien-routine ("_wputenv" win32--wputenv) sb-alien:int
+  (entry win32--wide-string))
+
+(ls-compat::-> win32--process-resident-bytes (t) (or null (integer 0 *)))
+(defun win32--process-resident-bytes (process-id)
+  "Return WorkingSetSize in bytes, or NIL if PROCESS-ID cannot be queried."
+  (when (typep process-id '(integer 1 #xffffffff))
+    (let ((handle (win32--open-process #x1000 0 process-id)))
+      (unless (zerop handle)
+        (unwind-protect
+             (sb-alien:with-alien ((counters win32--process-memory-counters))
+               (let ((size (sb-alien:alien-size win32--process-memory-counters :bytes)))
+                 (setf (sb-alien:slot counters 'size) size)
+                 (unless (zerop (win32--get-process-memory-info
+                                 handle (sb-alien:addr counters) size))
+                   (sb-alien:slot counters 'working-set-size))))
+          (win32--close-handle handle))))))
+
+(ls-compat::-> win32--process-parent-snapshot () (values list boolean))
+(defun win32--process-parent-snapshot ()
+  "Return all Toolhelp PID/PPID rows, or NIL and NIL on enumeration failure."
+  (let ((handle (win32--create-process-snapshot #x2 0)))
+    (if (= handle -1)
+        (values nil nil)
+        (unwind-protect
+             (sb-alien:with-alien ((entry win32--process-entry))
+               (setf (sb-alien:slot entry 'size)
+                     (sb-alien:alien-size win32--process-entry :bytes))
+               (let ((parents nil))
+                 (if (zerop (win32--process-first handle (sb-alien:addr entry)))
+                     (values nil (= (win32--get-last-error) 18))
+                     (loop
+                       (push (cons (sb-alien:slot entry 'process-id)
+                                   (sb-alien:slot entry 'parent-process-id))
+                             parents)
+                       (when (zerop (win32--process-next handle (sb-alien:addr entry)))
+                         (return (if (= (win32--get-last-error) 18)
+                                     (values (nreverse parents) t)
+                                     (values nil nil))))))))
+          (win32--close-handle handle)))))
+
+(ls-compat::-> win32--set-process-environment-variable (string (or null string)) null)
+(defun win32--set-process-environment-variable (name value)
+  "Update the CRT copy, then write the authoritative OS environment block."
+  (win32--wputenv (format nil "~A=~A" name (or value "")))
+  (when (zerop (win32--set-environment-variable name value))
+    (let ((code (win32--get-last-error)))
+      (unless (and (null value) (= code 203))
+        (error 'environment-update-failed :code code))))
+  nil)
+
 (sb-alien:define-alien-routine ("CreateHardLinkW" win32--create-hard-link)
     sb-alien:int
   (new-name win32--wide-string)

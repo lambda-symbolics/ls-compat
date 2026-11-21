@@ -22,6 +22,12 @@
   (:documentation "Process, file mode, file information, and path operations for POSIX hosts, with a Win32 backend on SBCL.")
   (:export #:current-process-id
            #:process-state
+           #:process-resident-bytes
+           #:process-parent-snapshot
+           #:set-environment-variable
+           #:environment-update-failed
+           #:environment-update-failed-code
+           #:executable-path-p
            #:process-alive-p
            #:process-groups-supported-p
            #:process-group-id
