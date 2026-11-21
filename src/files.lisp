@@ -35,76 +35,79 @@
   (pathname-designator pathname-designator &key (:root-policy confined-path-root-policy))
   confined-path-inspection)
 (defun confined-path-inspect (pathname root &key (root-policy :below-root))
-  "Inspect literal PATHNAME below ROOT without following symbolic links.
+  "Inspect an absolute literal PATHNAME at or below absolute directory ROOT.
 
-The result has a :STATUS of :DIRECTORY or :FILE when every existing component
-is acceptable, :MISSING when the target or a later component does not exist,
-:NOT-DIRECTORY when traversal reaches a non-directory, :SYMBOLIC-LINK when a
-link is encountered, :SPECIAL for another object kind, or :FAILED when the
-host could not inspect a component. ROOT-POLICY is :BELOW-ROOT for callers
-whose trusted root has already been checked, or :ROOT-INCLUSIVE to inspect it
-too. No file is opened and no authorization or storage policy is applied."
+The status is :DIRECTORY or :FILE on success, :MISSING on absence, :NOT-DIRECTORY
+when traversal reaches a non-directory, :SYMBOLIC-LINK or :SPECIAL when that
+kind of object is encountered, or :FAILED for an invalid or uninspectable path.
+The result names the first failing prefix. ROOT-POLICY :ROOT-INCLUSIVE checks
+ROOT itself; :BELOW-ROOT assumes it is a trusted directory. Both assume the
+ancestors of ROOT are trusted. This is an observation, not an open, an
+authorization decision, or a guarantee against concurrent path replacement."
   (check-type root-policy confined-path-root-policy)
-  (let* ((pathname (pathname pathname))
-         (root     (uiop:ensure-directory-pathname (pathname root)))
-         (relative (uiop:enough-pathname pathname root)))
-    (when (uiop:absolute-pathname-p relative)
+  (let* ((pathname (if (stringp pathname) (uiop:parse-native-namestring pathname) pathname))
+         (root     (uiop:ensure-directory-pathname
+                    (if (stringp root) (uiop:parse-native-namestring root) root)))
+         (relative (and (uiop:absolute-pathname-p pathname)
+                        (uiop:absolute-pathname-p root)
+                        (uiop:enough-pathname pathname root))))
+    (unless (and relative (not (uiop:absolute-pathname-p relative))
+                 (not (wild-pathname-p relative)))
       (return-from confined-path-inspect
         (make-confined-path-inspection
-         :failed pathname nil pathname "Path is outside the trusted root.")))
-    (let* ((components (append (rest (pathname-directory relative))
-                               (let ((file (uiop:native-namestring
-                                              (make-pathname :host nil :device nil
-                                                             :directory nil
-                                                              :defaults relative))))
-                                 (if (string= file "") nil (list file)))))
-           (current    root)
-           (last-kind  nil)
-           (paths      (if (eq root-policy :root-inclusive)
-                           (cons nil components)
-                           components)))
-      (loop for component in paths
-            for remaining on paths
-            do (when component
-                 (setf current
-                       (merge-pathnames
-                        (uiop:parse-native-namestring component) current)))
-               (handler-case
-                   (let ((kind
+         :failed pathname nil pathname "Path is not literal and below the trusted root.")))
+    (let* ((file       (uiop:native-namestring
+                        (make-pathname :host nil :device nil :directory nil :defaults relative)))
+           (components (append (rest (pathname-directory relative))
+                               (unless (string= file "") (list file))))
+           (prefix     (uiop:native-namestring root))
+           (windows-p  (uiop:os-windows-p))
+           (separator  (if windows-p "\\" "/"))
+           (last-kind  :directory))
+      (unless (and (not (wild-pathname-p root))
+                   (every (lambda (component)
+                            (and (stringp component) (plusp (length component))
+                                 (not (member component '("." "..") :test #'string=))
+                                 (not (find #\/ component)) (not (find #\Null component))
+                                 (or (not windows-p) (not (find #\\ component)))))
+                          (append (rest (pathname-directory root)) components)))
+        (return-from confined-path-inspect
+          (make-confined-path-inspection
+           :failed pathname nil pathname "Path has a nonliteral component.")))
+      (labels ((fail (status path message)
+                 (return-from confined-path-inspect
+                   (make-confined-path-inspection status pathname components path message)))
+
+               (inspect-prefix (path needs-directory-p)
+                 (handler-case
+                     (setf last-kind
                            (ls-compat.posix:file-information-kind
-                            (ls-compat.posix:file-information
-                             current :follow-links-p nil))))
-                     (setf last-kind kind)
-                     (unless (member kind '(:directory :file))
-                       (return-from confined-path-inspect
-                         (make-confined-path-inspection
-                          (if (eq kind :symbolic-link)
-                              :symbolic-link
-                              :special)
-                          pathname components current
-                          "A symbolic link or special file is not permitted.")))
-                     (when (and (rest remaining) (not (eq kind :directory)))
-                       (return-from confined-path-inspect
-                         (make-confined-path-inspection
-                          :not-directory pathname components current
-                          "A path component is not a directory."))))
-                 (ls-compat.posix:file-operation-failed (condition)
-                   (return-from confined-path-inspect
-                     (make-confined-path-inspection
-                      (case (ls-compat.posix:file-operation-failed-reason condition)
-                        (:missing
-                         :missing)
-                        (:not-directory
-                         :not-directory)
-                        (:symbolic-link
-                         :symbolic-link)
-                        (otherwise
-                         :failed))
-                      pathname components current
-                      (ls-compat.posix:file-operation-failed-message condition)))))
-       (make-confined-path-inspection
-        (if (eq last-kind :file) :file :directory)
-        pathname components nil nil)))))
+                            (ls-compat.posix:file-information path :follow-links-p nil)))
+                   (ls-compat.posix:file-operation-failed (condition)
+                     (let ((reason (ls-compat.posix:file-operation-failed-reason condition)))
+                       (fail (if (member reason '(:missing :not-directory :symbolic-link))
+                                 reason
+                                 :failed)
+                             path (ls-compat.posix:file-operation-failed-message condition)))))
+                 (cond
+                   ((eq last-kind :symbolic-link)
+                    (fail :symbolic-link path "A symbolic link is not permitted."))
+                   ((not (member last-kind '(:file :directory)))
+                    (fail :special path "A special file is not permitted."))
+                   ((and needs-directory-p (not (eq last-kind :directory)))
+                    (fail :not-directory path "A path component is not a directory.")))))
+        (when (eq root-policy :root-inclusive)
+          ;; A trailing separator can make lstat follow a directory symlink.
+          (inspect-prefix (if (rest (pathname-directory root))
+                              (uiop:parse-native-namestring (subseq prefix 0 (1- (length prefix))))
+                              root)
+                          t))
+        (loop for remaining on components
+              do (setf prefix (concatenate 'string prefix (first remaining)))
+                 (inspect-prefix (uiop:parse-native-namestring prefix)
+                                 (or (rest remaining) (uiop:directory-pathname-p pathname)))
+                 (setf prefix (concatenate 'string prefix separator))))
+      (make-confined-path-inspection last-kind pathname components nil nil))))
 
 
 ;;;; -- Conditions --

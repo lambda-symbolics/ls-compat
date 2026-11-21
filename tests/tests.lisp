@@ -490,6 +490,61 @@
                          "A link was not followed with FOLLOW-LINKS-P."))
       (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
 
+(ls-compat::-> tests--confined-path-inspection () t)
+(defun tests--confined-path-inspection ()
+  "Check confined traversal, first failure reporting, and literal component handling."
+  (let* ((directory (tests--temporary-directory))
+         (root      (merge-pathnames "root/" directory))
+         (file      (merge-pathnames "nested/plain.txt" root))
+         (literal   (merge-pathnames (uiop:parse-native-namestring "nested/a\\b*.txt") root))
+         (link      (merge-pathnames "link" root))
+         (fifo      (merge-pathnames "fifo" root)))
+    (unwind-protect
+         (progn
+           (publish-file file "regular")
+           (publish-file literal "literal")
+           (uiop:run-program (list "ln" "-s" "nested" (uiop:native-namestring link)))
+           (uiop:run-program (list "mkfifo" (uiop:native-namestring fifo)))
+           (loop for (target status first-failure) in
+                 '(("nested/plain.txt" :file nil)
+                   ("nested/" :directory nil)
+                   ("nested/missing" :missing "nested/missing")
+                   ("absent/missing" :missing "absent")
+                   ("nested/plain.txt/below" :not-directory "nested/plain.txt")
+                   ("link/plain.txt" :symbolic-link "link")
+                   ("fifo" :special "fifo")
+                   ("../outside" :failed "../outside"))
+                 for pathname = (merge-pathnames (uiop:parse-native-namestring target) root)
+                 for inspection = (ls-compat.files:confined-path-inspect pathname root)
+                 do (tests--check
+                     (and (eq status (ls-compat.files:confined-path-inspection-status inspection))
+                          (equal (and first-failure
+                                      (merge-pathnames (uiop:parse-native-namestring first-failure) root))
+                                 (ls-compat.files:confined-path-inspection-failure-pathname inspection)))
+                     (format nil "Wrong confined observation for ~A: ~S" target inspection)))
+           (let ((inspection (ls-compat.files:confined-path-inspect literal root)))
+             (tests--check
+              (and (eq ':file (ls-compat.files:confined-path-inspection-status inspection))
+                   (equal '("nested" "a\\b*.txt")
+                          (ls-compat.files:confined-path-inspection-components inspection)))
+              "Native backslash or wildcard characters did not survive confined inspection."))
+           (let ((linked-root (merge-pathnames "link/" root)))
+             (tests--check
+              (eq ':symbolic-link
+                  (ls-compat.files:confined-path-inspection-status
+                   (ls-compat.files:confined-path-inspect
+                    (merge-pathnames "plain.txt" linked-root) linked-root :root-policy ':root-inclusive)))
+              "Root-inclusive inspection followed the root link.")
+             (tests--check
+              (eq ':file
+                  (ls-compat.files:confined-path-inspection-status
+                   (ls-compat.files:confined-path-inspect
+                    (merge-pathnames "plain.txt" linked-root) linked-root :root-policy ':below-root)))
+              "Below-root inspection rechecked the caller's trusted root.")))
+      (ignore-errors (delete-file link))
+      (ignore-errors (delete-file fifo))
+      (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
+
 
 ;;;; -- TCP --
 
@@ -542,6 +597,7 @@
                       tests--directory-names
                       tests--canonical-pathnames
                       tests--signal-process
+                      tests--confined-path-inspection
                       tests--read-file-text))
         (funcall test)))
     (dolist (test '(tests--publish-file-replaces
