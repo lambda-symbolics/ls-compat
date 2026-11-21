@@ -86,12 +86,12 @@ Collision retries are bounded at 100 on Windows. The caller owns its lifecycle."
       (posix--operation-failure :create parent condition)))
   #+(and sbcl win32)
   (let ((state (sb-ext:seed-random-state t)))
-    (loop repeat 100
-          for suffix = (coerce (loop repeat 8
-                                    collect (char "abcdefghijklmnopqrstuvwxyz0123456789"
-                                                  (random 36 state))) 'string)
+    (loop for suffix = (coerce (loop repeat 8
+                                     collect (char "abcdefghijklmnopqrstuvwxyz0123456789"
+                                                   (random 36 state))) 'string)
           for directory = (uiop:ensure-directory-pathname
                            (merge-pathnames (concatenate 'string prefix suffix) parent))
+          repeat 100
           do (if (zerop (win32--create-directory (win32--native directory) nil))
                  (let ((code (win32--get-last-error)))
                    (unless (= code *win32-error-already-exists*)
@@ -118,7 +118,7 @@ Collision retries are bounded at 100 on Windows. The caller owns its lifecycle."
 #+(and sbcl win32)
 (defun win32--remove-tree (pathname)
   "Remove a native tree, including dot entries, without descending into reparse points."
-  (let* ((native (win32--native pathname))
+  (let* ((native     (win32--native pathname))
          (attributes (win32--get-file-attributes native)))
     (when (= attributes *win32-invalid-file-attributes*)
       (win32--operation-failure :delete pathname (win32--get-last-error)))
@@ -138,7 +138,7 @@ Collision retries are bounded at 100 on Windows. The caller owns its lifecycle."
 (ls-compat::-> delete-directory-tree
   (pathname &key (:validate t) (:if-does-not-exist (member :error :ignore))) t)
 (defun delete-directory-tree (pathname &rest arguments
-                             &key (validate nil validate-p) (if-does-not-exist :error))
+                              &key (validate nil validate-p) (if-does-not-exist :error))
   "Delete PATHNAME's tree after UIOP-style explicit validation.
 
 PATHNAME must be a physical, non-wild directory pathname. VALIDATE is required

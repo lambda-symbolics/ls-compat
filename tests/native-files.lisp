@@ -5,9 +5,9 @@
 (ls-compat::-> tests--native-files () t)
 (defun tests--native-files ()
   "Check private creation, exact replacement/deletion, validation and dot trees."
-  (let* ((root (ls-compat.posix:make-temporary-directory (uiop:temporary-directory) "native-"))
-         (source (merge-pathnames "source" root))
-         (target (merge-pathnames "target" root))
+  (let* ((root     (ls-compat.posix:make-temporary-directory (uiop:temporary-directory) "native-"))
+         (source   (merge-pathnames "source" root))
+         (target   (merge-pathnames "target" root))
          (dot-file (merge-pathnames ".git/objects/.keep" root)))
     (unwind-protect
          (progn
@@ -29,7 +29,7 @@
            (ensure-directories-exist dot-file)
            (with-open-file (stream dot-file :direction :output) (write-string "keep" stream))
            (dolist (arguments (list nil (list :validate (lambda (path)
-                                                        (declare (ignore path)) nil))))
+                                                         (declare (ignore path)) nil))))
              (tests--check
               (handler-case
                   (progn (apply #'ls-compat.posix:delete-directory-tree root arguments) nil)
@@ -51,16 +51,16 @@
 #+(and sbcl win32)
 (defun tests--native-read-only-failures ()
   "Check failed deletion restores attributes while failed replacement does not."
-  (let* ((root (ls-compat.posix:make-temporary-directory (uiop:temporary-directory) "readonly-"))
-         (target (merge-pathnames "target" root))
+  (let* ((root    (ls-compat.posix:make-temporary-directory (uiop:temporary-directory) "readonly-"))
+         (target  (merge-pathnames "target" root))
          (missing (merge-pathnames "missing" root))
-         (handle nil))
+         (handle  nil))
     (unwind-protect
          (progn
            (with-open-file (stream target :direction :output) (write-string "keep" stream))
-           (let* ((native (ls-compat.posix::win32--native target))
+           (let* ((native     (ls-compat.posix::win32--native target))
                   (attributes (ls-compat.posix::win32--get-file-attributes native))
-                  (read-only (logior attributes ls-compat.posix::*win32-file-attribute-readonly*)))
+                  (read-only  (logior attributes ls-compat.posix::*win32-file-attribute-readonly*)))
              (tests--check (not (zerop (ls-compat.posix::win32--set-file-attributes native read-only)))
                            "Could not set the test read-only attribute.")
              (setf handle (ls-compat.posix::win32--create-file native 0 0 nil
