@@ -176,11 +176,17 @@
        (eq 'ls-compat.posix:current-process-id
            (unsupported-operation-name condition))
        "Unsupported POSIX backend named the wrong operation.")
+      (tests--skip 'native-process-and-files (princ-to-string condition))
       nil)))
 
 (ls-compat::-> tests--current-process-group () t)
 (defun tests--current-process-group ()
   "Check current process group lookup and liveness."
+  #+win32
+  (progn
+    (tests--skip 'process-groups "Windows has no POSIX process groups.")
+    ':skipped)
+  #-win32
   (let* ((process-id       (current-process-id))
          (process-group-id (process-group-id process-id)))
     (tests--check (process-alive-p process-id)
@@ -199,11 +205,21 @@
            (tests--check
             (pathnamep (make-directory-exclusively directory :mode #o700))
             "Exclusive directory creation did not return a pathname.")
-           (tests--check (= #o700 (logand #o777 (file-mode directory)))
-                         "New directory mode is not 0700.")
-           (setf (file-mode directory) #o755)
-           (tests--check (= #o755 (logand #o777 (file-mode directory)))
-                         "Updated directory mode is not 0755."))
+           #-win32
+           (progn
+             (tests--check (= #o700 (logand #o777 (file-mode directory)))
+                           "New directory mode is not 0700.")
+             (setf (file-mode directory) #o755)
+             (tests--check (= #o755 (logand #o777 (file-mode directory)))
+                           "Updated directory mode is not 0755."))
+           #+win32
+           (progn
+             (tests--skip 'posix-mode-bits "Windows permissions use ACLs, not POSIX mode bits.")
+             (tests--check (file-information-private-p (file-information directory))
+                           "A private Windows directory has an exposed ACL.")
+             (setf (file-mode directory) #o755)
+             (tests--check (not (file-information-read-only-p (file-information directory)))
+                           "An inherited Windows directory ACL is not writable.")))
       (ignore-errors
         (uiop:delete-directory-tree directory :validate t)))))
 
@@ -344,7 +360,7 @@
 (ls-compat::-> tests--descendant-processes () t)
 (defun tests--descendant-processes ()
   "Check a launched child appears among this process's descendants."
-  (let ((child (uiop:launch-program '("sleep" "30") :output nil :error-output nil)))
+  (let ((child (uiop:launch-program (tests--sleep-command) :output nil :error-output nil)))
     (unwind-protect
          (let ((pid (uiop:process-info-pid child)))
            (tests--check (member pid (descendant-process-ids (current-process-id)))
@@ -388,8 +404,10 @@
            (let ((information (file-information file)))
              (tests--check (file-information-read-only-p information)
                            "A mode 0444 file was not reported read-only.")
-             (tests--check (not (file-information-private-p information))
-                           "A world-readable file was reported private."))
+             (tests--check #+win32 (file-information-private-p information)
+                           #-win32 (not (file-information-private-p information))
+                           #+win32 "Read-only Windows ACL exposed the file."
+                           #-win32 "A world-readable file was reported private."))
            (setf (file-mode file) #o600)
            (handler-case
                (progn
@@ -486,9 +504,7 @@
          (progn
            (ensure-directories-exist inside)
            (ensure-directories-exist outside)
-           (uiop:run-program (list "ln" "-s"
-                                   (uiop:native-namestring outside)
-                                   (uiop:native-namestring escape)))
+           (tests--make-symbolic-link outside escape)
            (tests--check (uiop:pathname-equal (resolve-pathname inside) (truename inside))
                          "An existing directory did not resolve to its truename.")
            (handler-case
@@ -515,7 +531,7 @@
 (ls-compat::-> tests--signal-process () t)
 (defun tests--signal-process ()
   "Check a single child process can be terminated."
-  (let ((child (uiop:launch-program '("sleep" "30") :output nil :error-output nil)))
+  (let ((child (uiop:launch-program (tests--sleep-command) :output nil :error-output nil)))
     (unwind-protect
          (let ((pid (uiop:process-info-pid child)))
            (tests--check (= pid (signal-process pid :terminate))
@@ -557,8 +573,7 @@
                            (not-regular-file () t)
                            (file-operation-failed () t))
                          "A directory was read as text.")
-           (uiop:run-program (list "ln" "-s" (uiop:native-namestring file)
-                                   (uiop:native-namestring link)))
+           (tests--make-symbolic-link file link)
            (tests--check (handler-case (progn (read-file-text link) nil)
                            (file-operation-failed (condition)
                              (eq ':symbolic-link (file-operation-failed-reason condition))))
@@ -574,6 +589,7 @@
          (file      (merge-pathnames "stable.bin" directory)))
     (unwind-protect
          (progn
+           (ensure-directories-exist file)
            (tests--write-octets file '(0 1 2 253 254 255))
            (tests--check
             (equalp #(0 1 2 253 254 255)
@@ -605,14 +621,19 @@
   (let* ((directory (tests--temporary-directory))
          (root      (merge-pathnames "root/" directory))
          (file      (merge-pathnames "nested/plain.txt" root))
-         (literal   (merge-pathnames (uiop:parse-native-namestring "nested/a\\b*.txt") root))
+         (literal   (merge-pathnames (uiop:parse-native-namestring
+                                      #+win32 "nested/a[1].txt"
+                                      #-win32 "nested/a\\b*.txt") root))
          (link      (merge-pathnames "link" root))
          (fifo      (merge-pathnames "fifo" root)))
     (unwind-protect
          (progn
            (publish-file file "regular")
            (publish-file literal "literal")
-           (uiop:run-program (list "ln" "-s" "nested" (uiop:native-namestring link)))
+           (tests--make-symbolic-link (merge-pathnames "nested/" root) link)
+           #+win32
+           (tests--skip 'fifo "Windows has no filesystem FIFO fixture.")
+           #-win32
            (uiop:run-program (list "mkfifo" (uiop:native-namestring fifo)))
            (loop for (target status first-failure) in
                  '(("nested/plain.txt" :file nil)
@@ -621,7 +642,7 @@
                    ("absent/missing" :missing "absent")
                    ("nested/plain.txt/below" :not-directory "nested/plain.txt")
                    ("link/plain.txt" :symbolic-link "link")
-                   ("fifo" :special "fifo")
+                   #-win32 ("fifo" :special "fifo")
                    ("../outside" :failed "../outside"))
                  for pathname = (merge-pathnames (uiop:parse-native-namestring target) root)
                  for inspection = (ls-compat.files:confined-path-inspect pathname root)
@@ -634,7 +655,8 @@
            (let ((inspection (ls-compat.files:confined-path-inspect literal root)))
              (tests--check
               (and (eq ':file (ls-compat.files:confined-path-inspection-status inspection))
-                   (equal '("nested" "a\\b*.txt")
+                   (equal #+win32 '("nested" "a[1].txt")
+                          #-win32 '("nested" "a\\b*.txt")
                           (ls-compat.files:confined-path-inspection-components inspection)))
               "Native backslash or wildcard characters did not survive confined inspection."))
            (let ((linked-root (merge-pathnames "link/" root)))
@@ -691,7 +713,8 @@
 (ls-compat::-> run-tests () boolean)
 (defun run-tests ()
   "Run ls-compat regression tests and signal an error on any failure."
-  (let ((*test-failures* nil))
+  (let ((*test-failures* nil)
+        (*test-skips*    nil))
     (dolist (test '(tests--utf8-round-trip
                     tests--utf8-failures
                     tests--utf8-measurements
@@ -699,7 +722,7 @@
                     tests--internal-real-time-seconds
                     tests--finite-floats
                     tests--timeout-signals-condition))
-      (funcall test))
+      (tests--run-case test))
     (when (tests--posix-supported-p)
       (dolist (test '(tests--current-process-group
                       tests--exclusive-directory-and-mode
@@ -712,15 +735,18 @@
                       tests--confined-path-inspection
                       tests--native-files
                       #+(and sbcl win32) tests--native-read-only-failures
+                      tests--stable-file-octets
                       tests--read-file-text))
-        (funcall test)))
+        (tests--run-case test)))
     (dolist (test '(tests--publish-file-replaces
                     tests--publish-file-cleans-up-failures
                     tests--publish-pathname-hooks
                     tests--publish-file-refuses-existing
                     tests--publish-file-reports-unavailable-temporary))
-      (funcall test))
-    (tests--tcp-lifecycle)
+      (tests--run-case test))
+    (tests--run-case 'tests--tcp-lifecycle)
+    (format t "~D failed checks; ~D explicit skips.~%"
+            (length *test-failures*) (length *test-skips*))
     (when *test-failures*
       (error "ls-compat test failures:~%~{~A~%~}"
              (nreverse *test-failures*)))

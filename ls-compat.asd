@@ -35,6 +35,7 @@
   :depends-on  (#:ls-compat/posix #:ls-compat/files #:ls-compat/tcp)
   :serial      t
   :components  ((:file "tests/package")
+                (:file "tests/platform-fixtures")
                 (:file "tests/tests")
                 (:file "tests/native-files"))
   :perform     (asdf:test-op (operation component)

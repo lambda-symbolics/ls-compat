@@ -1,0 +1,43 @@
+name: Windows platform
+on:
+  push:
+    branches: [extraction/067-platform]
+permissions:
+  contents: read
+jobs:
+  native-tests:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - name: Record exact candidate
+        shell: pwsh
+        run: |
+          $head = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate identity lookup failed.' }
+          Write-Output "Candidate: $head"
+          if ($head -ne $env:GITHUB_SHA) { throw 'Run SHA differs from the checkout.' }
+          if ((git status --porcelain)) { throw 'Candidate checkout is not clean.' }
+      - name: Install native SBCL 2.6.6
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = Join-Path $env:RUNNER_TEMP 'sbcl.msi'
+          curl.exe --fail --location --show-error --retry 3 --output $archive 'https://downloads.sourceforge.net/project/sbcl/sbcl/2.6.6/sbcl-2.6.6-x86-64-windows-binary.msi'
+          if ($LASTEXITCODE -ne 0) { throw 'SBCL download failed.' }
+          $expected = 'edc85cdfb7c7123060c53a88eecd203ec3f6701b8520a44d4ee1113f19741f7e'
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'SBCL checksum mismatch.' }
+          $extract = Join-Path $env:RUNNER_TEMP 'sbcl'
+          $process = Start-Process msiexec.exe -Wait -PassThru -NoNewWindow -ArgumentList @('/a', "`"$archive`"", '/qn', "TARGETDIR=`"$extract`"")
+          if ($process.ExitCode -ne 0) { throw 'SBCL extraction failed.' }
+          $runtime = Join-Path $extract 'PFiles\Steel Bank Common Lisp'
+          $runtime | Add-Content $env:GITHUB_PATH
+          "SBCL_HOME=$runtime" | Add-Content $env:GITHUB_ENV
+      - name: Native owning-library tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:RUNNER_TEMP 'quicklisp.lisp'
+          Invoke-WebRequest -Uri 'https://beta.quicklisp.org/quicklisp.lisp' -OutFile $installer
+          sbcl --noinform --no-userinit --no-sysinit --non-interactive --load $installer --eval '(quicklisp-quickstart:install)' --load checks/windows-platform.lisp
+          if ($LASTEXITCODE -ne 0) { throw 'Native ls-compat tests failed.' }
