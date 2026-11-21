@@ -174,7 +174,7 @@
                   "An invalid PID returned an observation.")
     (multiple-value-bind (rows available-p) (ls-compat.posix:process-parent-snapshot)
       (let ((row (assoc pid rows)))
-        (tests--check (and available-p row (typep (cdr row) '(integer 0 *)))
+        (tests--check (and available-p row (typep (rest row) '(integer 0 *)))
                       "The parent snapshot did not contain the running test process."))))
   #+(and sbcl (not win32))
   (progn
@@ -184,17 +184,17 @@
                           (list (format nil "3 1~%2 0~%") '(((3 . 1) (2 . 0)) t))
                           (list (format nil "3 1~%bad~%") '(nil nil))
                           (list (format nil "3 1~%3 0~%") '(nil nil))))
-      (tests--check (equal (multiple-value-list (ls-compat.posix::posix--parse-parent-snapshot
-                                                (first sample)))
+      (tests--check (equal (multiple-value-list
+                            (ls-compat.posix::posix--parse-parent-snapshot (first sample)))
                            (second sample))
                     "Parent parser confused empty, complete, malformed, or duplicate rows."))))
 
 (ls-compat::-> tests--environment-mutation () t)
 (defun tests--environment-mutation ()
   "Distinguish absent, empty and nonempty settings and check child inheritance."
-  (let* ((name (format nil "LS_COMPAT_TEST_~D_~D"
-                       (ls-compat.posix:current-process-id)
-                       (random most-positive-fixnum *tests--random-state*)))
+  (let* ((name   (format nil "LS_COMPAT_TEST_~D_~D"
+                         (ls-compat.posix:current-process-id)
+                         (random most-positive-fixnum *tests--random-state*)))
          (before (uiop:getenv name)))
     (unwind-protect
          (progn

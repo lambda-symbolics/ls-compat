@@ -221,7 +221,6 @@
   (flags (sb-alien:unsigned 32))
   (template (sb-alien:signed 64)))
 
-
 (sb-alien:define-alien-routine ("SetFileTime" win32--set-file-time)
   sb-alien:int
   (handle (sb-alien:signed 64))
@@ -703,14 +702,13 @@ would carry an empty list and deny everyone, its creator included."
     (win32--clear-read-only-attribute pathname native attributes)
     mode))
 
-
 (ls-compat::-> win32--file-permissions (pathname-designator) cons)
 (defun win32--file-permissions (pathname)
   "Return PATHNAME's ACL-derived mode and independent read-only state."
   (let* ((native     (win32--native pathname))
          (attributes (win32--attributes pathname native)))
     (list (win32--file-mode pathname)
-    (not (zerop (logand attributes *win32-file-attribute-readonly*))))))
+          (not (zerop (logand attributes *win32-file-attribute-readonly*))))))
 
 (ls-compat::-> win32--set-file-permissions (pathname-designator cons) cons)
 (defun win32--set-file-permissions (pathname permissions)
@@ -721,7 +719,7 @@ would carry an empty list and deny everyone, its creator included."
     (win32--set-file-mode pathname mode)
     (let* ((native     (win32--native pathname))
            (attributes (win32--attributes pathname native))
-           (updated     (if read-only-p
+           (updated    (if read-only-p
                             (logior attributes *win32-file-attribute-readonly*)
                             (logandc2 attributes *win32-file-attribute-readonly*))))
       (unless (= updated attributes)

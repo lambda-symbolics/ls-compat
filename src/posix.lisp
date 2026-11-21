@@ -463,7 +463,6 @@ refuses. The POSIX system currently supports SBCL."
   #-sbcl
   (posix--unsupported 'file-mode))
 
-
 (ls-compat::-> file-permissions (pathname-designator) t)
 (defun file-permissions (pathname)
   "Return PATHNAME's portable permission snapshot.
