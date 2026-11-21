@@ -14,6 +14,98 @@
   "What publication does when the target already exists."
   '(member :replace :error))
 
+(deftype confined-path-root-policy ()
+  "Whether CONFINED-PATH-INSPECT includes ROOT in its traversal."
+  '(member :below-root :root-inclusive))
+
+(defstruct (confined-path-inspection
+            (:constructor make-confined-path-inspection
+                (status pathname components failure-pathname message)))
+  "The result of inspecting a literal path without following links."
+  (status :failed :type keyword)
+  (pathname nil :type pathname)
+  (components nil :type list)
+  (failure-pathname nil :type (or null pathname))
+  (message nil :type (or null string)))
+
+
+;;;; -- Confined path inspection --
+
+(ls-compat::-> confined-path-inspect
+  (pathname-designator pathname-designator &key (:root-policy confined-path-root-policy))
+  confined-path-inspection)
+(defun confined-path-inspect (pathname root &key (root-policy :below-root))
+  "Inspect literal PATHNAME below ROOT without following symbolic links.
+
+The result has a :STATUS of :DIRECTORY or :FILE when every existing component
+is acceptable, :MISSING when the target or a later component does not exist,
+:NOT-DIRECTORY when traversal reaches a non-directory, :SYMBOLIC-LINK when a
+link is encountered, :SPECIAL for another object kind, or :FAILED when the
+host could not inspect a component. ROOT-POLICY is :BELOW-ROOT for callers
+whose trusted root has already been checked, or :ROOT-INCLUSIVE to inspect it
+too. No file is opened and no authorization or storage policy is applied."
+  (check-type root-policy confined-path-root-policy)
+  (let* ((pathname (pathname pathname))
+         (root     (uiop:ensure-directory-pathname (pathname root)))
+         (relative (uiop:enough-pathname pathname root)))
+    (when (uiop:absolute-pathname-p relative)
+      (return-from confined-path-inspect
+        (make-confined-path-inspection
+         :failed pathname nil pathname "Path is outside the trusted root.")))
+    (let* ((components (append (rest (pathname-directory relative))
+                               (let ((file (uiop:native-namestring
+                                              (make-pathname :host nil :device nil
+                                                             :directory nil
+                                                              :defaults relative))))
+                                 (if (string= file "") nil (list file)))))
+           (current    root)
+           (last-kind  nil)
+           (paths      (if (eq root-policy :root-inclusive)
+                           (cons nil components)
+                           components)))
+      (loop for component in paths
+            for remaining on paths
+            do (when component
+                 (setf current
+                       (merge-pathnames
+                        (uiop:parse-native-namestring component) current)))
+               (handler-case
+                   (let ((kind
+                           (ls-compat.posix:file-information-kind
+                            (ls-compat.posix:file-information
+                             current :follow-links-p nil))))
+                     (setf last-kind kind)
+                     (unless (member kind '(:directory :file))
+                       (return-from confined-path-inspect
+                         (make-confined-path-inspection
+                          (if (eq kind :symbolic-link)
+                              :symbolic-link
+                              :special)
+                          pathname components current
+                          "A symbolic link or special file is not permitted.")))
+                     (when (and (rest remaining) (not (eq kind :directory)))
+                       (return-from confined-path-inspect
+                         (make-confined-path-inspection
+                          :not-directory pathname components current
+                          "A path component is not a directory."))))
+                 (ls-compat.posix:file-operation-failed (condition)
+                   (return-from confined-path-inspect
+                     (make-confined-path-inspection
+                      (case (ls-compat.posix:file-operation-failed-reason condition)
+                        (:missing
+                         :missing)
+                        (:not-directory
+                         :not-directory)
+                        (:symbolic-link
+                         :symbolic-link)
+                        (otherwise
+                         :failed))
+                      pathname components current
+                      (ls-compat.posix:file-operation-failed-message condition)))))
+       (make-confined-path-inspection
+        (if (eq last-kind :file) :file :directory)
+        pathname components nil nil)))))
+
 
 ;;;; -- Conditions --
 

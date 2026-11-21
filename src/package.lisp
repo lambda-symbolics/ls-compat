@@ -70,6 +70,14 @@
   (:export #:publish-pathname
            #:publish-file
            #:read-file-text
+           #:confined-path-inspect
+           #:confined-path-root-policy
+           #:confined-path-inspection
+           #:confined-path-inspection-status
+           #:confined-path-inspection-pathname
+           #:confined-path-inspection-components
+           #:confined-path-inspection-failure-pathname
+           #:confined-path-inspection-message
            #:file-too-large
            #:file-too-large-size
            #:file-too-large-limit
