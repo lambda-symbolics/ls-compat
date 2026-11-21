@@ -15,7 +15,8 @@
   :depends-on  (#:ls-compat (:feature :sbcl #:sb-posix))
   :serial      t
   :components  ((:file "src/win32" :if-feature (:and :sbcl :win32))
-                (:file "src/posix")))
+                (:file "src/posix")
+                (:file "src/native-files")))
 
 (asdf:defsystem #:ls-compat/files
   :description "Atomic file publication through temporary siblings."
@@ -34,7 +35,8 @@
   :depends-on  (#:ls-compat/posix #:ls-compat/files #:ls-compat/tcp)
   :serial      t
   :components  ((:file "tests/package")
-                (:file "tests/tests"))
+                (:file "tests/tests")
+                (:file "tests/native-files"))
   :perform     (asdf:test-op (operation component)
                  (declare (ignore operation component))
                  (uiop:symbol-call '#:ls-compat/tests '#:run-tests)))

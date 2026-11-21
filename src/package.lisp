@@ -25,6 +25,10 @@
            #:process-group-alive-p
            #:signal-process-group
            #:make-directory-exclusively
+           #:make-temporary-directory
+           #:remove-file
+           #:replace-file
+           #:delete-directory-tree
            #:file-mode
            #:link-file
            #:link-target-exists

@@ -52,6 +52,20 @@ SB-POSIX condition if the directory already exists or cannot be created.
 reads and writes raw POSIX mode bits. The operating-system umask may restrict
 the mode supplied when a directory is created.
 
+`make-temporary-directory` takes a parent directory and name prefix and returns
+an exclusively created private directory. The caller chooses when to remove it.
+`replace-file` renames an existing source over a target; `remove-file` unlinks
+one exact native path. On Windows, deletion restores the original attributes on
+failure, while replacement clears a target read-only attribute without restoring
+it on failure.
+
+`delete-directory-tree` takes a physical, non-wild directory pathname and an
+explicit `:validate` predicate (or `t`). Its missing-path policy is
+`:if-does-not-exist :error` or `:ignore`. On Windows, native enumeration includes
+dot entries, reparse points are removed without traversal, and transient file
+failures receive bounded retries. These mutation APIs require SBCL, including
+its native Windows backend. Path authorization and lifecycle belong to callers.
+
 `process-alive-p` uses `kill(pid, 0)`. It is a snapshot, not process identity:
 a PID can be reused. A process that exists but cannot be signaled due to
 permissions counts as alive.

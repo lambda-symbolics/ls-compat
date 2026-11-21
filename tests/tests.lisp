@@ -630,6 +630,8 @@
                       tests--canonical-pathnames
                       tests--signal-process
                       tests--confined-path-inspection
+                      tests--native-files
+                      #+(and sbcl win32) tests--native-read-only-failures
                       tests--read-file-text))
         (funcall test)))
     (dolist (test '(tests--publish-file-replaces
