@@ -159,6 +159,49 @@ authorization decision, or a guarantee against concurrent path replacement."
 
 ;;;; -- Bounded reading --
 
+(ls-compat::-> read-stable-file-octets
+  (pathname-designator
+   &key (:maximum-octets (integer 0))
+        (:validation-function (or null function)))
+  (vector (unsigned-byte 8)))
+(defun read-stable-file-octets (pathname &key (maximum-octets most-positive-fixnum)
+                                                   validation-function)
+  "Read PATHNAME as one stable regular-file snapshot of raw octets.
+
+The file is opened without following links.  MAXIMUM-OCTETS is checked from
+its opened size, VALIDATION-FUNCTION runs after opening and before reading,
+and the descriptor must produce the complete announced size followed by EOF.
+A final no-following-links status check must find the same object and size;
+FILE-TOO-LARGE or FILE-CHANGED signals failures."
+  (let ((path (pathname pathname))
+        (stream nil))
+    (unwind-protect
+         (multiple-value-bind (opened information)
+             (ls-compat.posix:open-regular-file path :follow-links-p nil)
+           (setf stream opened)
+           (let ((size (ls-compat.posix:file-information-size information)))
+             (when (> size maximum-octets)
+               (error 'file-too-large :pathname path :size size :limit maximum-octets))
+             (when validation-function
+               (funcall validation-function))
+             (let ((octets (make-array size :element-type '(unsigned-byte 8))))
+               (unless (= (read-sequence octets stream) size)
+                 (error 'file-changed :pathname path))
+               (unless (eq (read-byte stream nil :eof) :eof)
+                 (error 'file-changed :pathname path))
+               (let ((current (handler-case
+                                  (ls-compat.posix:file-information
+                                   path :follow-links-p nil)
+                                (ls-compat.posix:file-operation-failed () nil))))
+                 (unless (and current
+                              (ls-compat.posix:file-information-same-object-p
+                               information current)
+                              (= size (ls-compat.posix:file-information-size current)))
+                   (error 'file-changed :pathname path)))
+               octets)))
+      (when stream
+        (close stream)))))
+
 (ls-compat::-> read-file-text
   (pathname-designator
    &key (:maximum-octets (integer 0))

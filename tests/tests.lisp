@@ -490,6 +490,37 @@
                          "A link was not followed with FOLLOW-LINKS-P."))
       (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
 
+(ls-compat::-> tests--stable-file-octets () t)
+(defun tests--stable-file-octets ()
+  "Check complete no-following-links reads and stable identity validation."
+  (let* ((directory (tests--temporary-directory))
+         (file      (merge-pathnames "stable.bin" directory)))
+    (unwind-protect
+         (progn
+           (tests--write-octets file '(0 1 2 253 254 255))
+           (tests--check
+            (equalp #(0 1 2 253 254 255)
+                    (ls-compat.files:read-stable-file-octets file
+                      :validation-function (lambda ()
+                                             (tests--check t "Stable read validation did not run."))))
+            "Stable read changed or truncated the octets.")
+           (tests--check
+            (handler-case
+                (progn (ls-compat.files:read-stable-file-octets file :maximum-octets 2) nil)
+              (ls-compat.files:file-too-large () t))
+            "Stable read ignored its maximum octet budget."))
+           (tests--check
+            (handler-case
+                (progn
+                  (ls-compat.files:read-stable-file-octets
+                   file
+                   :validation-function
+                   (lambda () (publish-file file #(9 8 7))))
+                  nil)
+              (ls-compat.files:file-changed () t))
+            "Stable read accepted replacement of the opened pathname.")
+      (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
+
 (ls-compat::-> tests--confined-path-inspection () t)
 (defun tests--confined-path-inspection ()
   "Check confined traversal, first failure reporting, and literal component handling."

@@ -67,10 +67,11 @@
 (defpackage #:ls-compat.files
   (:use #:cl)
   (:documentation "Atomic file publication through temporary siblings, and bounded UTF-8 file reading.")
-  (:export #:publish-pathname
-           #:publish-file
-           #:read-file-text
-           #:confined-path-inspect
+    (:export #:publish-pathname
+             #:publish-file
+             #:read-file-text
+             #:read-stable-file-octets
+             #:confined-path-inspect
            #:confined-path-root-policy
            #:confined-path-inspection
            #:confined-path-inspection-status
