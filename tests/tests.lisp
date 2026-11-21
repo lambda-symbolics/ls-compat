@@ -508,17 +508,18 @@
             (handler-case
                 (progn (ls-compat.files:read-stable-file-octets file :maximum-octets 2) nil)
               (ls-compat.files:file-too-large () t))
-            "Stable read ignored its maximum octet budget."))
+            "Stable read ignored its maximum octet budget.")
            (tests--check
             (handler-case
                 (progn
                   (ls-compat.files:read-stable-file-octets
                    file
                    :validation-function
-                   (lambda () (publish-file file #(9 8 7))))
+                   (lambda ()
+                     (publish-file file (make-array 6 :element-type '(unsigned-byte 8) :initial-element 9))))
                   nil)
               (ls-compat.files:file-changed () t))
-            "Stable read accepted replacement of the opened pathname.")
+            "Stable read accepted replacement of the opened pathname."))
       (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
 
 (ls-compat::-> tests--confined-path-inspection () t)

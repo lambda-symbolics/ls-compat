@@ -128,14 +128,14 @@ authorization decision, or a guarantee against concurrent path replacement."
                      (file-error-pathname condition)
                      (file-too-large-size condition)
                      (file-too-large-limit condition))))
-  (:documentation "READ-FILE-TEXT found a file larger than its limit."))
+  (:documentation "A bounded read found a file larger than its limit."))
 
 (define-condition file-changed (file-error)
   ()
   (:report (lambda (condition stream)
              (format stream "~A changed while it was being read."
                      (file-error-pathname condition))))
-  (:documentation "READ-FILE-TEXT saw the path or the opened file change during the read."))
+  (:documentation "A bounded read saw the path or the opened file change."))
 
 (define-condition file-not-utf-8 (file-error)
   ()
@@ -164,26 +164,24 @@ authorization decision, or a guarantee against concurrent path replacement."
    &key (:maximum-octets (integer 0))
         (:validation-function (or null function)))
   (vector (unsigned-byte 8)))
-(defun read-stable-file-octets (pathname &key (maximum-octets most-positive-fixnum)
-                                                   validation-function)
-  "Read PATHNAME as one stable regular-file snapshot of raw octets.
+(defun read-stable-file-octets (pathname &key (maximum-octets most-positive-fixnum) validation-function)
+  "Read the complete octets of regular file PATHNAME without following its final link.
 
-The file is opened without following links.  MAXIMUM-OCTETS is checked from
-its opened size, VALIDATION-FUNCTION runs after opening and before reading,
-and the descriptor must produce the complete announced size followed by EOF.
-A final no-following-links status check must find the same object and size;
-FILE-TOO-LARGE or FILE-CHANGED signals failures."
-  (let ((path (pathname pathname))
+After opening, run VALIDATION-FUNCTION when supplied, then check the opened
+size against MAXIMUM-OCTETS. The stream must yield exactly that size and EOF.
+Finally, PATHNAME must still name the same object and size without following
+its final link. Signal FILE-TOO-LARGE or FILE-CHANGED on failed checks."
+  (let ((path   (pathname pathname))
         (stream nil))
     (unwind-protect
          (multiple-value-bind (opened information)
              (ls-compat.posix:open-regular-file path :follow-links-p nil)
            (setf stream opened)
+           (when validation-function
+             (funcall validation-function))
            (let ((size (ls-compat.posix:file-information-size information)))
              (when (> size maximum-octets)
                (error 'file-too-large :pathname path :size size :limit maximum-octets))
-             (when validation-function
-               (funcall validation-function))
              (let ((octets (make-array size :element-type '(unsigned-byte 8))))
                (unless (= (read-sequence octets stream) size)
                  (error 'file-changed :pathname path))
