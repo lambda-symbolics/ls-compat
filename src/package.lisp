@@ -39,6 +39,9 @@
            #:replace-file
            #:delete-directory-tree
            #:file-mode
+           #:file-permissions
+           #:copy-file-permissions
+           #:set-file-times
            #:link-file
            #:link-target-exists
            #:link-failed

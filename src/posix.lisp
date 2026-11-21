@@ -464,6 +464,67 @@ refuses. The POSIX system currently supports SBCL."
   (posix--unsupported 'file-mode))
 
 
+(ls-compat::-> file-permissions (pathname-designator) t)
+(defun file-permissions (pathname)
+  "Return PATHNAME's portable permission snapshot.
+
+POSIX returns the complete #o7777 mode. Windows returns a two-element list of
+ACL-derived mode and the independent native read-only attribute."
+  #+(and sbcl win32)
+  (win32--file-permissions pathname)
+  #+(and sbcl (not win32))
+  (logand #o7777 (file-mode pathname))
+  #-sbcl
+  (posix--unsupported 'file-permissions))
+
+(ls-compat::-> (setf file-permissions) (t pathname-designator) t)
+(defun (setf file-permissions) (permissions pathname)
+  "Restore a complete permission snapshot and return PERMISSIONS."
+  #+(and sbcl win32)
+  (win32--set-file-permissions pathname permissions)
+  #+(and sbcl (not win32))
+  (progn
+    (check-type permissions (integer 0 #o7777))
+    (sb-posix:chmod (posix--native-namestring pathname) permissions)
+    permissions)
+  #-sbcl
+  (posix--unsupported 'file-permissions))
+
+(ls-compat::-> copy-file-permissions (pathname-designator pathname-designator) null)
+(defun copy-file-permissions (source target)
+  "Copy SOURCE's permission semantics to TARGET, without copying read-only state."
+  #+(and sbcl win32)
+  (win32--copy-file-permissions source target)
+  #+(and sbcl (not win32))
+  (let ((permissions (handler-case
+                         (file-permissions source)
+                       (sb-posix:syscall-error (condition)
+                         (posix--operation-failure ':protect source condition)))))
+    (handler-case
+        (setf (file-permissions target) permissions)
+      (sb-posix:syscall-error (condition)
+        (posix--operation-failure ':protect target condition)))
+    nil)
+  #-sbcl
+  (posix--unsupported 'copy-file-permissions))
+
+(ls-compat::-> set-file-times (pathname-designator integer) null)
+(defun set-file-times (pathname universal-time)
+  "Set access and modification times, clamping the value to the native epoch."
+  (check-type universal-time integer)
+  #+(and sbcl win32)
+  (win32--set-file-times pathname universal-time)
+  #+(and sbcl (not win32))
+  (let ((unix-time (max 0 (- universal-time 2208988800))))
+    (handler-case
+        (sb-posix:utime (posix--native-namestring pathname) unix-time unix-time)
+      (sb-posix:syscall-error (condition)
+        (posix--operation-failure ':times pathname condition))))
+  #-sbcl
+  (posix--unsupported 'set-file-times)
+  nil)
+
+
 ;;;; -- Hard links --
 
 (ls-compat::-> link-file (pathname-designator pathname-designator) pathname)

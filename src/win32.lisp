@@ -221,6 +221,14 @@
   (flags (sb-alien:unsigned 32))
   (template (sb-alien:signed 64)))
 
+
+(sb-alien:define-alien-routine ("SetFileTime" win32--set-file-time)
+  sb-alien:int
+  (handle (sb-alien:signed 64))
+  (creation-time (* t))
+  (last-access-time (* t))
+  (last-write-time (* t)))
+
 (sb-alien:define-alien-routine ("GetFileInformationByHandle"
                                 win32--get-file-information-by-handle)
     sb-alien:int
@@ -694,6 +702,66 @@ would carry an empty list and deny everyone, its creator included."
        (win32--restore-inherited-acl pathname native)))
     (win32--clear-read-only-attribute pathname native attributes)
     mode))
+
+
+(ls-compat::-> win32--file-permissions (pathname-designator) cons)
+(defun win32--file-permissions (pathname)
+  "Return PATHNAME's ACL-derived mode and independent read-only state."
+  (let* ((native     (win32--native pathname))
+         (attributes (win32--attributes pathname native)))
+    (list (win32--file-mode pathname)
+    (not (zerop (logand attributes *win32-file-attribute-readonly*))))))
+
+(ls-compat::-> win32--set-file-permissions (pathname-designator cons) cons)
+(defun win32--set-file-permissions (pathname permissions)
+  "Restore ACL-derived mode and the independent read-only attribute."
+  (destructuring-bind (mode read-only-p) permissions
+    (check-type mode (integer 0 #o777))
+    (check-type read-only-p boolean)
+    (win32--set-file-mode pathname mode)
+    (let* ((native     (win32--native pathname))
+           (attributes (win32--attributes pathname native))
+           (updated     (if read-only-p
+                            (logior attributes *win32-file-attribute-readonly*)
+                            (logandc2 attributes *win32-file-attribute-readonly*))))
+      (unless (= updated attributes)
+        (when (zerop (win32--set-file-attributes native updated))
+          (win32--security-failure pathname "SetFileAttributesW" (win32--get-last-error)))))
+    permissions))
+
+(ls-compat::-> win32--copy-file-permissions (pathname-designator pathname-designator) null)
+(defun win32--copy-file-permissions (source target)
+  "Copy SOURCE's ACL-derived mode without copying its read-only attribute."
+  (win32--set-file-mode target (win32--file-mode source))
+  nil)
+
+(defparameter *win32-file-write-attributes* #x100
+  "FILE_WRITE_ATTRIBUTES, required by SetFileTime.")
+
+(defparameter *win32-filetime-epoch-offset* 9435484800
+  "Seconds from the FILETIME epoch of 1601 to the universal-time epoch of 1900.")
+
+(ls-compat::-> win32--set-file-times (pathname-designator integer) null)
+(defun win32--set-file-times (pathname universal-time)
+  "Set PATHNAME's access and modification times, clamping before the FILETIME epoch."
+  (let ((filetime (* (max 0 (+ universal-time *win32-filetime-epoch-offset*)) 10000000)))
+    (sb-alien:with-alien ((access-time (sb-alien:unsigned 64))
+                          (write-time  (sb-alien:unsigned 64)))
+      (setf access-time filetime
+            write-time  filetime)
+      (let ((handle (win32--create-file (win32--native pathname)
+                                        *win32-file-write-attributes*
+                                        *win32-share-all* nil *win32-open-existing*
+                                        *win32-file-flag-backup-semantics* 0)))
+        (when (= handle *win32-invalid-handle*)
+          (win32--operation-failure ':times pathname (win32--get-last-error)))
+        (unwind-protect
+             (when (zerop (win32--set-file-time handle nil
+                                                (sb-alien:addr access-time)
+                                                (sb-alien:addr write-time)))
+               (win32--operation-failure ':times pathname (win32--get-last-error)))
+          (win32--close-handle handle)))))
+  nil)
 
 
 ;;;; -- File information --
